@@ -262,6 +262,48 @@ async function handleColaborador(request, env, url) {
   return json({ error: 'method_not_allowed' }, 405);
 }
 
+async function handleColaboradorLote(request, env, url) {
+  if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
+  const session = await getSession(request, env.SESSION_SECRET);
+  if (!session) return json({ error: 'unauthorized' }, 401);
+  const db = env.DB;
+  const resolvido = await resolverEmpresa(session, url, db);
+  if (!resolvido.ok) return json({ error: resolvido.error }, 403);
+  const empresaId = resolvido.empresaId;
+
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'invalid_body' }, 400); }
+  if (!Array.isArray(body.nomes)) return json({ error: 'nomes_obrigatorios' }, 400);
+  if (body.nomes.length > 500) return json({ error: 'limite_500_nomes' }, 400);
+
+  const { results: existentes } = await db.prepare('SELECT nome FROM colaboradores WHERE empresa_id = ? AND deletado_em IS NULL').bind(empresaId).all();
+  const vistos = new Set(existentes.map(c => c.nome.trim().toLowerCase()));
+  const novos = [];
+  let ignorados = 0;
+  for (const bruto of body.nomes) {
+    const nome = String(bruto || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (!nome) continue;
+    const chave = nome.toLowerCase();
+    if (vistos.has(chave)) { ignorados++; continue; }
+    vistos.add(chave);
+    novos.push(nome);
+  }
+
+  if (novos.length > 0) {
+    const { results } = await db.prepare('SELECT COALESCE(MAX(ordem), 0) AS max FROM colaboradores WHERE empresa_id = ?').bind(empresaId).all();
+    let ordem = results[0].max;
+    const stmts = novos.map(nome => {
+      ordem += 1;
+      const id = 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+      return db.prepare('INSERT INTO colaboradores (id, nome, notas, docs, ordem, empresa_id) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(id, nome, '[]', '{}', ordem, empresaId);
+    });
+    await db.batch(stmts);
+    await regHist(db, request, session.username, `Importou lista com ${novos.length} colaborador(es)` + (ignorados ? ` (${ignorados} repetido(s) ignorado(s))` : ''), 'dados', empresaId);
+  }
+  return json({ ok: true, criados: novos.length, ignorados });
+}
+
 async function handleDoctype(request, env, url) {
   const session = await getSession(request, env.SESSION_SECRET);
   if (!session) return json({ error: 'unauthorized' }, 401);
@@ -501,6 +543,7 @@ export default {
       if (p === '/api/data') return await handleData(request, env, url);
       if (p === '/api/historico') return await handleHistorico(request, env, url);
       if (p === '/api/colaborador') return await handleColaborador(request, env, url);
+      if (p === '/api/colaborador-lote') return await handleColaboradorLote(request, env, url);
       if (p === '/api/doctype') return await handleDoctype(request, env, url);
       if (p === '/api/config') return await handleConfig(request, env, url);
       if (p === '/api/users') return await handleUsers(request, env, url);

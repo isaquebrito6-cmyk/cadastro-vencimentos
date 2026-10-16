@@ -340,6 +340,26 @@
   </div>
 </header>
 
+<div id="importModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:240;align-items:center;justify-content:center;padding:20px;">
+  <div style="width:100%;max-width:480px;max-height:90vh;overflow-y:auto;background:var(--bg-panel);border:1px solid var(--line);border-radius:6px;padding:24px 26px;">
+    <h2 style="font-family:'Oswald',sans-serif;font-size:16px;font-weight:600;margin:0 0 6px;">⬆ Importar lista de nomes</h2>
+    <p style="font-size:12px;color:var(--text-dim);margin:0 0 14px;line-height:1.5;">Envie um arquivo .txt ou .csv (um nome por linha; em CSV vale a primeira coluna) ou cole os nomes abaixo. Nomes repetidos são ignorados. As datas dos documentos você preenche depois.</p>
+    <div class="field" style="margin-bottom:10px;">
+      <label>Arquivo (.txt ou .csv)</label>
+      <input type="file" id="importArquivo" accept=".txt,.csv,text/plain,text/csv">
+    </div>
+    <div class="field" style="margin-bottom:8px;">
+      <label>Nomes (um por linha)</label>
+      <textarea id="importTexto" rows="8" style="width:100%;resize:vertical;"></textarea>
+    </div>
+    <div id="importResumo" style="font-size:12px;color:var(--text-dim);min-height:16px;margin-bottom:8px;"></div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn" id="importCancelar" style="flex:1;justify-content:center;">Cancelar</button>
+      <button class="btn primary" id="importConfirmar" style="flex:1;justify-content:center;">Importar</button>
+    </div>
+  </div>
+</div>
+
 <div id="novaEmpresaModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:260;align-items:center;justify-content:center;padding:20px;">
   <div style="width:100%;max-width:360px;background:var(--bg-panel);border:1px solid var(--line);border-radius:6px;padding:24px 26px;">
     <h2 style="font-family:'Oswald',sans-serif;font-size:16px;font-weight:600;margin:0 0 16px;">+ Nova empresa</h2>
@@ -404,6 +424,7 @@
 
   <div class="toolbar">
     <button class="btn primary" id="addBtn">＋ Novo colaborador</button>
+    <button class="btn" id="importBtn">⬆ Importar lista</button>
     <button class="btn ghost" id="openColabTrashBtn">🗑️ Lixeira</button>
     <div class="search-box grow"><input id="searchInput" type="text" placeholder="Buscar colaborador... (atalho: /)"></div>
     <select id="statusFilter">
@@ -1456,6 +1477,55 @@ function addNew(){
   }, 50);
 }
 
+// ---------- Importar lista de nomes ----------
+function parsearListaNomes(texto){
+  const linhas = String(texto || '').replace(/^\uFEFF/, '').split(/\r?\n/);
+  const nomes = [];
+  linhas.forEach((linha, i) => {
+    let v = linha.trim();
+    if(!v) return;
+    if(v.includes(';') || v.includes('\t')) v = v.split(/[;\t]/)[0];
+    else if(/^"[^"]*",/.test(v)) v = v.match(/^"([^"]*)",/)[1];
+    else if(/,\s*\S+@|,\s*\d/.test(v)) v = v.split(',')[0];
+    v = v.replace(/^"|"$/g, '').replace(/\s+/g, ' ').trim();
+    if(!v) return;
+    if(nomes.length === 0 && i === 0 && /^(nome|colaborador|funcion[aá]rio)s?$/i.test(v)) return;
+    nomes.push(v);
+  });
+  return nomes;
+}
+
+function atualizarResumoImport(){
+  const nomes = parsearListaNomes(document.getElementById('importTexto').value);
+  const existentes = new Set(DATA.map(e => e.nome.trim().toLowerCase()));
+  const vistos = new Set();
+  let novos = 0, rep = 0;
+  nomes.forEach(n => {
+    const k = n.toLowerCase();
+    if(existentes.has(k) || vistos.has(k)) rep++; else { vistos.add(k); novos++; }
+  });
+  document.getElementById('importResumo').textContent = nomes.length
+    ? `${novos} novo(s) para cadastrar` + (rep ? ` · ${rep} repetido(s) serão ignorados` : '')
+    : '';
+}
+
+async function confirmarImport(){
+  const nomes = parsearListaNomes(document.getElementById('importTexto').value);
+  if(nomes.length === 0){ showToast('Informe ao menos um nome.'); return; }
+  const btn = document.getElementById('importConfirmar');
+  btn.disabled = true;
+  try{
+    const r = await apiFetch('/api/colaborador-lote', {method:'POST', body: JSON.stringify({nomes})});
+    await refreshData();
+    document.getElementById('importModal').style.display = 'none';
+    showToast(`${r.criados} colaborador(es) importado(s)` + (r.ignorados ? `, ${r.ignorados} repetido(s) ignorado(s).` : '.'));
+  }catch(err){
+    showToast('Não foi possível importar: ' + (err.message === 'limite_500_nomes' ? 'máximo de 500 nomes por vez.' : err.message), 'error');
+  }finally{
+    btn.disabled = false;
+  }
+}
+
 // ---------- Export / Import backup ----------
 function exportCSV(){
   const rows = sortRows(getFiltered());
@@ -1812,6 +1882,23 @@ async function iniciarApp(){
   });
 
   document.getElementById('addBtn').addEventListener('click', addNew);
+  document.getElementById('importBtn').addEventListener('click', () => {
+    document.getElementById('importTexto').value = '';
+    document.getElementById('importArquivo').value = '';
+    document.getElementById('importResumo').textContent = '';
+    document.getElementById('importModal').style.display = 'flex';
+  });
+  document.getElementById('importCancelar').addEventListener('click', () => {
+    document.getElementById('importModal').style.display = 'none';
+  });
+  document.getElementById('importTexto').addEventListener('input', atualizarResumoImport);
+  document.getElementById('importArquivo').addEventListener('change', async (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    if(!f) return;
+    document.getElementById('importTexto').value = await f.text();
+    atualizarResumoImport();
+  });
+  document.getElementById('importConfirmar').addEventListener('click', confirmarImport);
   document.getElementById('searchInput').addEventListener('input', renderTable);
   document.getElementById('statusFilter').addEventListener('change', renderTable);
   document.getElementById('docFilter').addEventListener('change', renderTable);
