@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vencimentos-cache-v2';
+const CACHE_NAME = 'vencimentos-cache-v3';
 const APP_SHELL = ['/', '/index.html', '/manifest.json', '/icon-512.png', '/icon-180.png'];
 
 self.addEventListener('install', (event) => {
@@ -28,16 +28,19 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) {
     return;
   }
+  // Páginas (HTML): rede primeiro, pra a pessoa sempre receber a versão nova após um deploy;
+  // o cache só entra se estiver sem internet. Demais arquivos (ícones etc.): cache primeiro.
+  const ehPagina = event.request.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('.html');
+  const buscarERegistrar = () => fetch(event.request).then((response) => {
+    if (response.ok) {
+      const copy = response.clone();
+      caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+    }
+    return response;
+  });
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const network = fetch(event.request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          return response;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
+    ehPagina
+      ? buscarERegistrar().catch(() => caches.match(event.request).then((c) => c || caches.match('/index.html')))
+      : caches.match(event.request).then((cached) => cached || buscarERegistrar())
   );
 });

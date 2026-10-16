@@ -898,13 +898,21 @@ function renderHistorico(){
   }
 }
 
+// Célula de CSV segura: escapa aspas e neutraliza "injeção de fórmula" (valores que começam com = + - @
+// seriam executados como fórmula ao abrir no Excel).
+function csvCelula(v){
+  let t = String(v ?? '');
+  if(/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+  return `"${t.replace(/"/g,'""')}"`;
+}
+
 function exportHistoricoCSV(){
   const filtroEl = document.getElementById('historicoFiltro');
   const filtro = filtroEl ? filtroEl.value : 'todos';
   const itens = filtro === 'todos' ? HISTORICO : HISTORICO.filter(h => h.tipo === filtro);
   const linhas = [['Data/hora','Usuário','Tipo','Ação','IP'].join(';')];
   itens.forEach(h => {
-    linhas.push([formatarDataHora(h.ts), h.quem || '', h.tipo === 'seguranca' ? 'Segurança' : 'Dados', h.acao, h.ip || ''].map(v => `"${String(v).replace(/"/g,'""')}"`).join(';'));
+    linhas.push([formatarDataHora(h.ts), h.quem || '', h.tipo === 'seguranca' ? 'Segurança' : 'Dados', h.acao, h.ip || ''].map(csvCelula).join(';'));
   });
   const csv = '\uFEFF' + linhas.join('\r\n');
   const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
@@ -995,7 +1003,7 @@ function renderLegend(){
     return `<div class="legend-item" style="display:flex;gap:10px;align-items:flex-start;background:var(--bg-panel-2);border:1px solid var(--line);border-radius:3px;padding:10px 12px;position:relative;">
       <span class="chip" style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;padding:3px 7px;border-radius:2px;flex:none;margin-top:1px;background:${m.cor};color:#15171a">${escapeHTML(sigla)}</span>
       <span style="font-size:12.5px;color:var(--text-dim);line-height:1.4;flex:1;"><b style="color:var(--text);font-weight:600;">${escapeHTML(m.nome)}</b><br>${escapeHTML(m.desc)}</span>
-      <button data-del-doctype="${sigla}" title="Excluir este tipo de documento" style="background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;line-height:1;padding:2px;flex:none;">✕</button>
+      <button data-del-doctype="${escapeHTML(sigla)}" title="Excluir este tipo de documento" style="background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;line-height:1;padding:2px;flex:none;">✕</button>
     </div>`;
   }).join('');
 
@@ -1039,13 +1047,13 @@ function renderDocPanel(){
     const proximos = itens.map(it => {
       const sm = STATUS_META[it.status];
       const diasTxt = it.dias < 0 ? `${Math.abs(it.dias)}d vencido` : (it.dias===0?'vence hoje':`${it.dias}d`);
-      return `<div data-emp-edit="${it.id}" data-doc-sigla="${sigla}" style="cursor:pointer;display:flex;justify-content:space-between;gap:8px;font-size:11.5px;padding:4px 0;border-top:1px solid var(--line);" title="Clique para editar ${escapeHTML(it.nome)}" tabindex="0" role="button" aria-label="Editar ${escapeHTML(it.nome)}, ${diasTxt}">
+      return `<div data-emp-edit="${it.id}" data-doc-sigla="${escapeHTML(sigla)}" style="cursor:pointer;display:flex;justify-content:space-between;gap:8px;font-size:11.5px;padding:4px 0;border-top:1px solid var(--line);" title="Clique para editar ${escapeHTML(it.nome)}" tabindex="0" role="button" aria-label="Editar ${escapeHTML(it.nome)}, ${diasTxt}">
         <span style="color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(it.nome)}</span>
         <span style="font-family:'IBM Plex Mono',monospace;font-weight:600;color:${sm.cor};flex:none;">${diasTxt}</span>
       </div>`;
     }).join('') || `<div style="font-size:11.5px;color:var(--text-dim);padding:6px 0;">Nenhuma data cadastrada ainda.</div>`;
 
-    return `<div class="doc-panel-card" data-doc-card="${sigla}" style="cursor:pointer;background:${hexToRgba(meta.cor,0.05)};border:1px solid var(--line);border-top:3px solid ${meta.cor};border-radius:3px;padding:14px 16px;transition:transform 0.15s,box-shadow 0.15s;" title="Clique para editar os colaboradores deste documento" tabindex="0" role="button" aria-label="${escapeHTML(meta.nome)}: ${comData} de ${total} com registro. Clique para ver todos.">
+    return `<div class="doc-panel-card" data-doc-card="${escapeHTML(sigla)}" style="cursor:pointer;background:${hexToRgba(meta.cor,0.05)};border:1px solid var(--line);border-top:3px solid ${meta.cor};border-radius:3px;padding:14px 16px;transition:transform 0.15s,box-shadow 0.15s;" title="Clique para editar os colaboradores deste documento" tabindex="0" role="button" aria-label="${escapeHTML(meta.nome)}: ${comData} de ${total} com registro. Clique para ver todos.">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
         <span style="font-family:'Oswald',sans-serif;font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:0.03em;color:${meta.cor};">${escapeHTML(sigla)}</span>
         <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-dim);">${comData}/${total}</span>
@@ -1149,7 +1157,7 @@ function renderAvisos(){
     const diasTxt = it.dias < 0 ? `${Math.abs(it.dias)}d vencido` : (it.dias===0?'vence hoje':`${it.dias}d`);
     return `<div class="alert-item">
       <span class="dot" style="background:${sm.cor}"></span>
-      <button type="button" class="nm" data-emp-edit="${it.id}" data-doc-sigla="${it.sigla}">${escapeHTML(it.nome)}</button>
+      <button type="button" class="nm" data-emp-edit="${it.id}" data-doc-sigla="${escapeHTML(it.sigla)}">${escapeHTML(it.nome)}</button>
       <span class="doc">${escapeHTML(it.sigla)}</span>
       <span class="days" style="color:${sm.cor};background:${sm.bg}">${diasTxt}</span>
     </div>`;
@@ -1371,11 +1379,11 @@ function rowHTML(e, docF){
   const chips = DOC_ORDER.map(sigla => {
     const d = e.docs[sigla];
     const st = statusFor(d);
-    if(st === 'sem_registro') return `<div class="doc-chip sr" title="${sigla}: sem registro">·</div>`;
+    if(st === 'sem_registro') return `<div class="doc-chip sr" title="${escapeHTML(sigla)}: sem registro">·</div>`;
     const stm = STATUS_META[st];
     const meta = DOC_META[sigla];
     const rot = rotuloChip(sigla);
-    return `<div class="doc-chip" style="background:${meta.cor};border:2px solid ${stm.cor}" title="${sigla}: ${stm.label} — ${fmtDate(d)}"><span class="chip-top">${rot.top}</span>${rot.bottom ? `<span class="chip-bottom">${rot.bottom}</span>` : ''}</div>`;
+    return `<div class="doc-chip" style="background:${meta.cor};border:2px solid ${stm.cor}" title="${escapeHTML(sigla)}: ${stm.label} — ${fmtDate(d)}"><span class="chip-top">${escapeHTML(rot.top)}</span>${rot.bottom ? `<span class="chip-bottom">${escapeHTML(rot.bottom)}</span>` : ''}</div>`;
   }).join('');
 
   let proxTxt;
@@ -1413,12 +1421,12 @@ function rowHTML(e, docF){
         </div>
         ${DOC_ORDER.map(sigla => `
         <div class="field">
-          <label>${sigla}</label>
-          <input type="date" data-date-for="${e.id}-${sigla}" id="fld-doc-${e.id}-${sigla}" value="${e.docs[sigla]||''}">
+          <label>${escapeHTML(sigla)}</label>
+          <input type="date" data-date-for="${e.id}-${escapeHTML(sigla)}" id="fld-doc-${e.id}-${escapeHTML(sigla)}" value="${e.docs[sigla]||''}">
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">
-            <a class="clear-date" data-quick-date="${e.id}-${sigla}" data-meses="12" href="#" title="Define para daqui a 1 ano a partir de hoje">+1 ano</a>
-            <a class="clear-date" data-quick-date="${e.id}-${sigla}" data-meses="24" href="#" title="Define para daqui a 2 anos a partir de hoje">+2 anos</a>
-            <a class="clear-date" data-clear="${e.id}-${sigla}" href="#">limpar</a>
+            <a class="clear-date" data-quick-date="${e.id}-${escapeHTML(sigla)}" data-meses="12" href="#" title="Define para daqui a 1 ano a partir de hoje">+1 ano</a>
+            <a class="clear-date" data-quick-date="${e.id}-${escapeHTML(sigla)}" data-meses="24" href="#" title="Define para daqui a 2 anos a partir de hoje">+2 anos</a>
+            <a class="clear-date" data-clear="${e.id}-${escapeHTML(sigla)}" href="#">limpar</a>
           </div>
         </div>`).join('')}
       </div>
@@ -1539,7 +1547,7 @@ function exportCSV(){
       ...DOC_ORDER.map(s => fmtDate(e.docs[s])),
       ...DOC_ORDER.map(s => STATUS_META[statusFor(e.docs[s])].label),
     ];
-    lines.push(line.map(v => `"${String(v).replace(/"/g,'""')}"`).join(';'));
+    lines.push(line.map(csvCelula).join(';'));
   });
   const blob = new Blob(['\uFEFF'+lines.join('\n')], {type:'text/csv;charset=utf-8;'});
   const url = URL.createObjectURL(blob);

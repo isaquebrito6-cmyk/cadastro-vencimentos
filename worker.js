@@ -1,5 +1,9 @@
 import { hashPassword, verifyPassword, makeSessionToken, getSession, json, generateRecoveryCode } from './lib/auth.js';
 
+const SIGLA_VALIDA = /^[A-Z0-9][A-Z0-9 \-\/.+]{0,19}$/;
+const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+const HASH_FALSO = { salt: '00000000000000000000000000000000', hash: '0'.repeat(64) };
+
 const PALETA = ['#f2b705', '#3fae5c', '#f2954a', '#e05a8a', '#8a6de0', '#4fa3e3', '#c94f4f', '#4fc9a8', '#c9a24f', '#7a8fd6'];
 
 const BUILTIN_DOC_TYPES = [
@@ -20,6 +24,18 @@ function clienteInfo(request) {
   const ip = request.headers.get('CF-Connecting-IP') || 'desconhecido';
   const ua = request.headers.get('User-Agent') || 'desconhecido';
   return { ip, ua };
+}
+
+// Valida o token E confere no banco se o usuário ainda existe, usando o papel/empresa ATUAIS.
+// Assim, remover um usuário ou mudar o papel dele vale na hora, sem esperar o token (12h) expirar.
+async function obterSessao(request, env) {
+  if (!env.SESSION_SECRET) return null;
+  const token = await getSession(request, env.SESSION_SECRET);
+  if (!token || !token.username) return null;
+  const { results } = await env.DB.prepare('SELECT username, role, empresa_id FROM users WHERE username = ?').bind(token.username).all();
+  const u = results[0];
+  if (!u) return null;
+  return { username: u.username, role: u.role, empresaId: u.empresa_id };
 }
 
 async function regHist(db, request, username, acao, tipo = 'dados', empresaId = null) {
@@ -46,7 +62,11 @@ async function resolverEmpresa(session, url, db) {
   const requested = requestedRaw ? parseInt(requestedRaw, 10) : null;
 
   if (session.role === 'admin') {
-    if (requested) return { ok: true, empresaId: requested };
+    if (requested) {
+      const { results: ex } = await db.prepare('SELECT id FROM empresas WHERE id = ?').bind(requested).all();
+      if (ex.length === 0) return { ok: false, error: 'empresa_inexistente' };
+      return { ok: true, empresaId: requested };
+    }
     const { results } = await db.prepare('SELECT id FROM empresas ORDER BY id ASC LIMIT 1').all();
     if (results.length === 0) return { ok: false, error: 'nenhuma_empresa_cadastrada' };
     return { ok: true, empresaId: results[0].id };
@@ -95,7 +115,12 @@ async function handleLogin(request, env) {
     return json({ error: 'conta_bloqueada', minutos: minutosRestantes }, 423);
   }
 
-  if (!user || !(await verifyPassword(password, user.password_salt, user.password_hash))) {
+  // Se o usuário não existe, faz o mesmo trabalho de hash mesmo assim, pra não dar pra descobrir
+  // quais nomes de usuário existem medindo o tempo de resposta.
+  const senhaOk = user
+    ? await verifyPassword(password, user.password_salt, user.password_hash)
+    : (await verifyPassword(password, HASH_FALSO.salt, HASH_FALSO.hash), false);
+  if (!senhaOk) {
     if (user) {
       const tentativas = user.failed_attempts + 1;
       if (tentativas >= MAX_TENTATIVAS) {
@@ -117,7 +142,7 @@ async function handleLogin(request, env) {
 }
 
 async function handleEmpresas(request, env, url) {
-  const session = await getSession(request, env.SESSION_SECRET);
+  const session = await obterSessao(request, env);
   if (!session) return json({ error: 'unauthorized' }, 401);
   const db = env.DB;
 
@@ -158,7 +183,7 @@ async function handleEmpresas(request, env, url) {
 
 async function handleData(request, env, url) {
   if (request.method !== 'GET') return json({ error: 'method_not_allowed' }, 405);
-  const session = await getSession(request, env.SESSION_SECRET);
+  const session = await obterSessao(request, env);
   if (!session) return json({ error: 'unauthorized' }, 401);
   const db = env.DB;
 
@@ -193,7 +218,7 @@ async function handleData(request, env, url) {
 }
 
 async function handleColaborador(request, env, url) {
-  const session = await getSession(request, env.SESSION_SECRET);
+  const session = await obterSessao(request, env);
   if (!session) return json({ error: 'unauthorized' }, 401);
   const db = env.DB;
   const resolvido = await resolverEmpresa(session, url, db);
@@ -223,8 +248,20 @@ async function handleColaborador(request, env, url) {
     try { body = await request.json(); } catch { return json({ error: 'invalid_body' }, 400); }
     const nome = String(body.nome || '').trim();
     if (!nome) return json({ error: 'nome_obrigatorio' }, 400);
-    const notas = Array.isArray(body.notas) ? body.notas : [];
-    const docs = body.docs && typeof body.docs === 'object' ? body.docs : {};
+    if (nome.length > 200) return json({ error: 'nome_muito_longo' }, 400);
+    const notas = (Array.isArray(body.notas) ? body.notas : []).slice(0, 50).map(n => String(n).slice(0, 500));
+    // Só aceita datas válidas (AAAA-MM-DD) e só de tipos de documento que existem nesta empresa.
+    const { results: tipos } = await db.prepare('SELECT sigla FROM doc_types WHERE empresa_id = ?').bind(empresaId).all();
+    const siglasValidas = new Set(tipos.map(t => t.sigla));
+    const docs = {};
+    if (body.docs && typeof body.docs === 'object') {
+      for (const [sigla, valor] of Object.entries(body.docs)) {
+        if (!siglasValidas.has(sigla)) continue;
+        if (valor === null || valor === '' || valor === undefined) { docs[sigla] = null; continue; }
+        if (typeof valor !== 'string' || !DATA_ISO.test(valor) || Number.isNaN(Date.parse(valor))) return json({ error: 'data_invalida', sigla }, 400);
+        docs[sigla] = valor;
+      }
+    }
     let id = body.id;
     const isNew = !id;
     if (isNew) {
@@ -264,7 +301,7 @@ async function handleColaborador(request, env, url) {
 
 async function handleColaboradorLote(request, env, url) {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
-  const session = await getSession(request, env.SESSION_SECRET);
+  const session = await obterSessao(request, env);
   if (!session) return json({ error: 'unauthorized' }, 401);
   const db = env.DB;
   const resolvido = await resolverEmpresa(session, url, db);
@@ -305,7 +342,7 @@ async function handleColaboradorLote(request, env, url) {
 }
 
 async function handleDoctype(request, env, url) {
-  const session = await getSession(request, env.SESSION_SECRET);
+  const session = await obterSessao(request, env);
   if (!session) return json({ error: 'unauthorized' }, 401);
   const db = env.DB;
   const resolvido = await resolverEmpresa(session, url, db);
@@ -318,7 +355,9 @@ async function handleDoctype(request, env, url) {
     const sigla = String(body.sigla || '').trim().toUpperCase().replace(/\s+/g, ' ');
     const nome = String(body.nome || '').trim();
     if (!sigla) return json({ error: 'sigla_obrigatoria' }, 400);
+    if (!SIGLA_VALIDA.test(sigla)) return json({ error: 'sigla_invalida' }, 400);
     if (!nome) return json({ error: 'nome_obrigatorio' }, 400);
+    if (nome.length > 200) return json({ error: 'nome_muito_longo' }, 400);
     const { results: existing } = await db.prepare('SELECT sigla FROM doc_types WHERE sigla = ? AND empresa_id = ?').bind(sigla, empresaId).all();
     if (existing.length > 0) return json({ error: 'ja_existe' }, 409);
     const { results: maxRes } = await db.prepare('SELECT COALESCE(MAX(ordem), 0) AS max FROM doc_types WHERE empresa_id = ?').bind(empresaId).all();
@@ -351,7 +390,7 @@ async function handleDoctype(request, env, url) {
 }
 
 async function handleConfig(request, env, url) {
-  const session = await getSession(request, env.SESSION_SECRET);
+  const session = await obterSessao(request, env);
   if (!session) return json({ error: 'unauthorized' }, 401);
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   const db = env.DB;
@@ -371,7 +410,7 @@ async function handleConfig(request, env, url) {
 }
 
 async function handleUsers(request, env, url) {
-  const session = await getSession(request, env.SESSION_SECRET);
+  const session = await obterSessao(request, env);
   if (!session) return json({ error: 'unauthorized' }, 401);
   if (session.role !== 'admin') return json({ error: 'somente_admin' }, 403);
   const db = env.DB;
@@ -394,6 +433,11 @@ async function handleUsers(request, env, url) {
     const empresaId = role === 'editor' ? parseInt(body.empresaId, 10) || null : null;
     if (!username || password.length < 8) return json({ error: 'dados_invalidos' }, 400);
     if (role === 'editor' && !empresaId) return json({ error: 'empresa_obrigatoria_para_editor' }, 400);
+    if (username.length > 64) return json({ error: 'dados_invalidos' }, 400);
+    if (role === 'editor') {
+      const { results: emp } = await db.prepare('SELECT id FROM empresas WHERE id = ?').bind(empresaId).all();
+      if (emp.length === 0) return json({ error: 'empresa_inexistente' }, 400);
+    }
     const { results: existing } = await db.prepare('SELECT username FROM users WHERE username = ?').bind(username).all();
     if (existing.length > 0) return json({ error: 'ja_existe' }, 409);
     const { hash, salt } = await hashPassword(password);
@@ -450,7 +494,7 @@ async function handleResetPassword(request, env) {
 }
 
 async function handleAdminResetPassword(request, env) {
-  const session = await getSession(request, env.SESSION_SECRET);
+  const session = await obterSessao(request, env);
   if (!session) return json({ error: 'unauthorized' }, 401);
   if (session.role !== 'admin') return json({ error: 'somente_admin' }, 403);
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
@@ -473,7 +517,7 @@ async function handleAdminResetPassword(request, env) {
 }
 
 async function handleHistorico(request, env, url) {
-  const session = await getSession(request, env.SESSION_SECRET);
+  const session = await obterSessao(request, env);
   if (!session) return json({ error: 'unauthorized' }, 401);
   if (session.role !== 'admin') return json({ error: 'somente_admin' }, 403);
   const db = env.DB;
@@ -551,6 +595,11 @@ export default {
       return json({ error: 'erro_interno', detalhe: String(err) }, 500);
     }
     // Qualquer outra rota (index.html, manifest.json, ícones, sw.js) vem dos arquivos estáticos.
-    return env.ASSETS.fetch(request);
+    const resp = await env.ASSETS.fetch(request);
+    const seguro = new Response(resp.body, resp);
+    seguro.headers.set('X-Content-Type-Options', 'nosniff');
+    seguro.headers.set('X-Frame-Options', 'DENY');
+    seguro.headers.set('Referrer-Policy', 'same-origin');
+    return seguro;
   },
 };
