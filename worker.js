@@ -50,6 +50,7 @@ function dataLimiteRetencao() {
 
 async function purgarLixeiraAntiga(db) {
   const limite = dataLimiteRetencao();
+  await apagarCertificadosDaLixeira(db, null, limite); // antes dos colaboradores, senão perde a ligação
   await db.prepare('DELETE FROM colaboradores WHERE deletado_em IS NOT NULL AND deletado_em < ?').bind(limite).run();
   await db.prepare('DELETE FROM historico WHERE deletado_em IS NOT NULL AND deletado_em < ?').bind(limite).run();
 }
@@ -209,7 +210,15 @@ async function handleData(request, env, url) {
     empresas = results;
   }
 
+  let certificados = [];
+  try {
+    await garantirTabelasCert(db);
+    const { results } = await db.prepare('SELECT id, colaborador_id, sigla, nome_arquivo, tipo, tamanho, enviado_em FROM certificados WHERE empresa_id = ? AND deletado_em IS NULL ORDER BY enviado_em ASC').bind(empresaId).all();
+    certificados = results;
+  } catch (err) { /* a lista de certificados nunca pode impedir o app de abrir */ }
+
   return json({
+    certificados,
     colaboradores, docTypes: docTypesRes.results, config, historico: historicoRes.results,
     role: session.role, username: session.username,
     empresaAtual: empresaRes.results[0] || null,
@@ -283,6 +292,7 @@ async function handleColaborador(request, env, url) {
     if (url.searchParams.get('esvaziar') === 'tudo') {
       if (session.role !== 'admin') return json({ error: 'somente_admin' }, 403);
       const { results: countRes } = await db.prepare('SELECT COUNT(*) AS count FROM colaboradores WHERE empresa_id = ? AND deletado_em IS NOT NULL').bind(empresaId).all();
+      await apagarCertificadosDaLixeira(db, empresaId, null);
       await db.prepare('DELETE FROM colaboradores WHERE empresa_id = ? AND deletado_em IS NOT NULL').bind(empresaId).run();
       await regHist(db, request, session.username, `Esvaziou a lixeira de colaboradores (${countRes[0].count} apagados definitivamente)`, 'seguranca', empresaId);
       return json({ ok: true });
@@ -465,6 +475,152 @@ async function handleColaboradorLote(request, env, url) {
   });
 }
 
+// ---------- Certificados anexados (PDF ou foto) ----------
+// Os arquivos ficam no próprio banco D1, em partes de 512 KB (o D1 não aceita linha acima de 2 MB).
+// As tabelas são criadas sozinhas no primeiro uso, então não há migração manual a fazer.
+const MAX_CERT_BYTES = 4 * 1024 * 1024;
+const CERT_PARTE_BYTES = 512 * 1024;
+const MAX_CERT_POR_DOC = 10;
+const LIMITE_ARMAZENAMENTO_CERT = 400 * 1024 * 1024; // o plano gratuito do D1 aceita 500 MB por banco
+let certTabelasProntas = false;
+
+async function garantirTabelasCert(db) {
+  if (certTabelasProntas) return;
+  await db.batch([
+    db.prepare(`CREATE TABLE IF NOT EXISTS certificados (
+      id TEXT PRIMARY KEY, empresa_id INTEGER NOT NULL, colaborador_id TEXT NOT NULL, sigla TEXT NOT NULL,
+      nome_arquivo TEXT NOT NULL, tipo TEXT NOT NULL, tamanho INTEGER NOT NULL, enviado_por TEXT,
+      enviado_em TEXT NOT NULL DEFAULT (datetime('now')), deletado_em TEXT)`),
+    db.prepare('CREATE TABLE IF NOT EXISTS certificado_partes (certificado_id TEXT NOT NULL, n INTEGER NOT NULL, dados TEXT NOT NULL, PRIMARY KEY (certificado_id, n))'),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_cert_colab ON certificados (empresa_id, colaborador_id)'),
+  ]);
+  certTabelasProntas = true;
+}
+
+// Confere o conteúdo real do arquivo (não confia no nome nem no tipo informado pelo navegador).
+function detectarTipoArquivo(b) {
+  if (b.length >= 4 && b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return 'application/pdf';
+  if (b.length >= 3 && b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return 'image/jpeg';
+  if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return 'image/png';
+  if (b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
+  return null;
+}
+
+function bytesParaBase64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function base64ParaBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function limparNomeArquivo(bruto, tipo) {
+  let nome = String(bruto || '').replace(/[\u0000-\u001f\u007f\\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!nome) nome = 'certificado' + ({ 'application/pdf': '.pdf', 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' }[tipo] || '');
+  return nome;
+}
+
+// Apaga de vez os certificados cujos colaboradores já estão sendo apagados da lixeira.
+async function apagarCertificadosDaLixeira(db, empresaId, limiteData) {
+  try {
+    await garantirTabelasCert(db);
+    const filtroColab = empresaId
+      ? 'colaborador_id IN (SELECT id FROM colaboradores WHERE empresa_id = ? AND deletado_em IS NOT NULL)'
+      : 'colaborador_id IN (SELECT id FROM colaboradores WHERE deletado_em IS NOT NULL AND deletado_em < ?)';
+    const arg = empresaId || limiteData;
+    const alvo = `(${filtroColab})` + (limiteData && !empresaId ? ' OR (deletado_em IS NOT NULL AND deletado_em < ?)' : '');
+    const binds = limiteData && !empresaId ? [arg, limiteData] : [arg];
+    await db.prepare(`DELETE FROM certificado_partes WHERE certificado_id IN (SELECT id FROM certificados WHERE ${alvo})`).bind(...binds).run();
+    await db.prepare(`DELETE FROM certificados WHERE ${alvo}`).bind(...binds).run();
+  } catch (err) { /* limpeza é best-effort: nunca derruba a operação principal */ }
+}
+
+async function handleCertificado(request, env, url) {
+  const session = await obterSessao(request, env);
+  if (!session) return json({ error: 'unauthorized' }, 401);
+  const db = env.DB;
+  const resolvido = await resolverEmpresa(session, url, db);
+  if (!resolvido.ok) return json({ error: resolvido.error }, 403);
+  const empresaId = resolvido.empresaId;
+  await garantirTabelasCert(db);
+
+  if (request.method === 'GET') {
+    const id = url.searchParams.get('id');
+    if (!id) {
+      const { results } = await db.prepare('SELECT id, colaborador_id, sigla, nome_arquivo, tipo, tamanho, enviado_em FROM certificados WHERE empresa_id = ? AND deletado_em IS NULL ORDER BY enviado_em ASC').bind(empresaId).all();
+      return json({ certificados: results });
+    }
+    const { results } = await db.prepare('SELECT nome_arquivo, tipo, tamanho FROM certificados WHERE id = ? AND empresa_id = ? AND deletado_em IS NULL').bind(id, empresaId).all();
+    if (results.length === 0) return json({ error: 'nao_encontrado' }, 404);
+    const meta = results[0];
+    const { results: partes } = await db.prepare('SELECT dados FROM certificado_partes WHERE certificado_id = ? ORDER BY n ASC').bind(id).all();
+    const corpo = new Uint8Array(meta.tamanho);
+    let pos = 0;
+    for (const p of partes) { const b = base64ParaBytes(p.dados); corpo.set(b, pos); pos += b.length; }
+    if (pos !== meta.tamanho) return json({ error: 'arquivo_corrompido' }, 500);
+    const disposicao = url.searchParams.get('baixar') === '1' ? 'attachment' : 'inline';
+    return new Response(corpo, { headers: {
+      'content-type': meta.tipo,
+      'content-length': String(corpo.length),
+      'content-disposition': `${disposicao}; filename="certificado"; filename*=UTF-8''${encodeURIComponent(meta.nome_arquivo)}`,
+      'x-content-type-options': 'nosniff',
+      'cache-control': 'private, no-store',
+    } });
+  }
+
+  if (request.method === 'POST') {
+    const colaboradorId = url.searchParams.get('colaborador_id') || '';
+    const sigla = url.searchParams.get('sigla') || '';
+    const { results: colab } = await db.prepare('SELECT id, nome FROM colaboradores WHERE id = ? AND empresa_id = ? AND deletado_em IS NULL').bind(colaboradorId, empresaId).all();
+    if (colab.length === 0) return json({ error: 'colaborador_nao_encontrado' }, 404);
+    const { results: tipoDoc } = await db.prepare('SELECT sigla FROM doc_types WHERE sigla = ? AND empresa_id = ?').bind(sigla, empresaId).all();
+    if (tipoDoc.length === 0) return json({ error: 'documento_invalido' }, 400);
+
+    const declarado = parseInt(request.headers.get('content-length') || '0', 10);
+    if (declarado > MAX_CERT_BYTES + 1024) return json({ error: 'arquivo_muito_grande', limite: MAX_CERT_BYTES }, 413);
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    if (bytes.length === 0) return json({ error: 'arquivo_vazio' }, 400);
+    if (bytes.length > MAX_CERT_BYTES) return json({ error: 'arquivo_muito_grande', limite: MAX_CERT_BYTES }, 413);
+    const tipo = detectarTipoArquivo(bytes);
+    if (!tipo) return json({ error: 'tipo_nao_permitido' }, 415);
+
+    const { results: cont } = await db.prepare('SELECT COUNT(*) AS n FROM certificados WHERE empresa_id = ? AND colaborador_id = ? AND sigla = ? AND deletado_em IS NULL').bind(empresaId, colaboradorId, sigla).all();
+    if (cont[0].n >= MAX_CERT_POR_DOC) return json({ error: 'limite_de_certificados_no_documento', limite: MAX_CERT_POR_DOC }, 409);
+    const { results: uso } = await db.prepare('SELECT COALESCE(SUM(tamanho), 0) AS total FROM certificados').all();
+    if (uso[0].total + bytes.length > LIMITE_ARMAZENAMENTO_CERT) return json({ error: 'armazenamento_cheio' }, 409);
+
+    const id = 'c_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    const nomeArquivo = limparNomeArquivo(url.searchParams.get('nome'), tipo);
+    const stmts = [db.prepare('INSERT INTO certificados (id, empresa_id, colaborador_id, sigla, nome_arquivo, tipo, tamanho, enviado_por) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(id, empresaId, colaboradorId, sigla, nomeArquivo, tipo, bytes.length, session.username)];
+    for (let n = 0, ini = 0; ini < bytes.length; n++, ini += CERT_PARTE_BYTES) {
+      stmts.push(db.prepare('INSERT INTO certificado_partes (certificado_id, n, dados) VALUES (?, ?, ?)')
+        .bind(id, n, bytesParaBase64(bytes.subarray(ini, ini + CERT_PARTE_BYTES))));
+    }
+    await db.batch(stmts); // tudo ou nada: nunca fica arquivo pela metade
+    await regHist(db, request, session.username, `Anexou certificado "${nomeArquivo}" (${sigla}) a "${colab[0].nome}"`, 'dados', empresaId);
+    const { results: nova } = await db.prepare('SELECT id, colaborador_id, sigla, nome_arquivo, tipo, tamanho, enviado_em FROM certificados WHERE id = ?').bind(id).all();
+    return json({ ok: true, certificado: nova[0] });
+  }
+
+  if (request.method === 'DELETE' || request.method === 'PUT') {
+    const id = url.searchParams.get('id');
+    if (!id) return json({ error: 'id_obrigatorio' }, 400);
+    const apagar = request.method === 'DELETE';
+    const { results } = await db.prepare(`SELECT nome_arquivo, sigla FROM certificados WHERE id = ? AND empresa_id = ? AND deletado_em IS ${apagar ? '' : 'NOT '}NULL`).bind(id, empresaId).all();
+    if (results.length === 0) return json({ error: 'nao_encontrado' }, 404);
+    await db.prepare('UPDATE certificados SET deletado_em = ? WHERE id = ?').bind(apagar ? new Date().toISOString() : null, id).run();
+    await regHist(db, request, session.username, `${apagar ? 'Excluiu' : 'Restaurou'} certificado "${results[0].nome_arquivo}" (${results[0].sigla})`, 'dados', empresaId);
+    return json({ ok: true });
+  }
+
+  return json({ error: 'method_not_allowed' }, 405);
+}
+
 async function handleDoctype(request, env, url) {
   const session = await obterSessao(request, env);
   if (!session) return json({ error: 'unauthorized' }, 401);
@@ -499,6 +655,10 @@ async function handleDoctype(request, env, url) {
     const { results } = await db.prepare('SELECT sigla FROM doc_types WHERE sigla = ? AND empresa_id = ?').bind(sigla, empresaId).all();
     if (results.length === 0) return json({ error: 'nao_encontrado' }, 404);
     await db.prepare('DELETE FROM doc_types WHERE sigla = ? AND empresa_id = ?').bind(sigla, empresaId).run();
+    try {
+      await garantirTabelasCert(db);
+      await db.prepare('UPDATE certificados SET deletado_em = ? WHERE empresa_id = ? AND sigla = ? AND deletado_em IS NULL').bind(new Date().toISOString(), empresaId, sigla).run();
+    } catch (err) { /* sem certificados ainda */ }
     const { results: colaboradores } = await db.prepare('SELECT id, docs FROM colaboradores WHERE empresa_id = ?').bind(empresaId).all();
     const stmts = colaboradores.map(c => {
       const docs = JSON.parse(c.docs);
@@ -712,6 +872,7 @@ export default {
       if (p === '/api/historico') return await handleHistorico(request, env, url);
       if (p === '/api/colaborador') return await handleColaborador(request, env, url);
       if (p === '/api/colaborador-lote') return await handleColaboradorLote(request, env, url);
+      if (p === '/api/certificado') return await handleCertificado(request, env, url);
       if (p === '/api/doctype') return await handleDoctype(request, env, url);
       if (p === '/api/config') return await handleConfig(request, env, url);
       if (p === '/api/users') return await handleUsers(request, env, url);

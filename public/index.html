@@ -145,6 +145,12 @@
   .edit-actions{display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--line);padding-top:14px;margin-top:6px;}
   .clear-date{font-size:11px;color:var(--text-dim);cursor:pointer;margin-top:4px;display:inline-block;}
   .clear-date:hover{color:var(--amber);}
+  .cert-box{margin-top:6px;font-size:11.5px;display:flex;flex-direction:column;gap:3px;}
+  .cert-item{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
+  .cert-nome{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);}
+  .cert-tam{color:var(--text-dim);font-size:10.5px;}
+  .cert-add{color:var(--amber);margin-top:2px;}
+  .cert-dica,.cert-status{font-size:11px;color:var(--text-dim);}
 
   .empty-state{padding:60px 20px;text-align:center;color:var(--text-dim);}
   .empty-state .big{font-family:'Oswald',sans-serif;text-transform:uppercase;font-size:20px;color:var(--text);margin-bottom:8px;}
@@ -176,6 +182,13 @@
     .kpi-row{grid-template-columns:repeat(2,1fr);}
     header.top{padding:22px 18px;} main{padding:22px 18px 60px;}
     .top-meta{text-align:left;}
+  }
+  /* No celular a tabela (760 px) rola para o lado; a ficha de edição fica "colada" na largura da tela, sem precisar rolar. */
+  @media(max-width:780px){
+    .edit-row td{padding:16px 12px 20px;}
+    .edit-row td > *{position:sticky;left:12px;width:calc(100vw - 66px);box-sizing:border-box;}
+    .edit-grid{grid-template-columns:1fr 1fr;}
+    .cert-nome{max-width:100%;}
   }
   @media print{ body{background:#fff;color:#000;} .toolbar,.banner,.row-actions{display:none;} }
 </style>
@@ -602,6 +615,7 @@ let CFG = {avisoDias: 30, notifAtivado: false, empresa: 'Verzani e Sandrini'};
 let sortKey = 'nome';
 let sortDir = 1;
 let openEditId = null;
+let CERTS = [];   // certificados anexados (só os dados; o arquivo é baixado quando a pessoa pede)
 
 let EMPRESA_ATUAL = null;
 let EMPRESAS_DISPONIVEIS = [];
@@ -819,6 +833,7 @@ async function fazerLogin(username, password){
 async function loadInitial(){
   DOC_TYPES = JSON.parse(JSON.stringify(BUILTIN_DOC_TYPES));
   const data = await apiFetch('/api/data');
+  CERTS = data.certificados || [];
   DATA = data.colaboradores.map(e => ({
     id: e.id, nome: e.nome, notas: e.notas || [], docs: e.docs || {}
   }));
@@ -845,6 +860,7 @@ async function loadInitial(){
 
 async function refreshData(){
   const data = await apiFetch('/api/data');
+  CERTS = data.certificados || [];
   DATA = data.colaboradores.map(e => ({ id: e.id, nome: e.nome, notas: e.notas || [], docs: e.docs || {} }));
   DOC_TYPES = {};
   data.docTypes.forEach(dt => { DOC_TYPES[dt.sigla] = {cor: dt.cor, nome: dt.nome, desc: dt.descricao}; });
@@ -1029,7 +1045,7 @@ function renderLegend(){
   document.querySelectorAll('[data-del-doctype]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const sigla = btn.dataset.delDoctype;
-      if(confirm(`Excluir "${sigla}" da lista de documentos? Isso remove esse campo de TODOS os colaboradores (as demais datas não são afetadas).`)){
+      if(confirm(`Excluir "${sigla}" da lista de documentos? Isso remove esse campo de TODOS os colaboradores (as demais datas não são afetadas) e também os certificados anexados a esse documento.`)){
         openEditId = null;
         await excluirTipoDocumento(sigla);
         refreshDocFilterOptions();
@@ -1415,9 +1431,11 @@ function rowHTML(e, docF){
     proxTxt = prox ? `${fmtDate(prox.data)} <span style="color:var(--text-dim)">(${prox.sigla})</span>` : '—';
   }
   const flag = e.notas && e.notas.length ? `<span class="flag">${escapeHTML(e.notas.join(', '))}</span>` : '';
+  const nCerts = CERTS.filter(c => c.colaborador_id === e.id).length;
+  const certFlag = nCerts ? `<span class="flag" title="${nCerts} certificado(s) anexado(s)" style="text-transform:none;">📎 ${nCerts}</span>` : '';
 
   let html = `<tr>
-    <td class="nm-cell">${escapeHTML(e.nome)}${flag}</td>
+    <td class="nm-cell">${escapeHTML(e.nome)}${flag}${certFlag}</td>
     <td><span class="status-pill" style="color:${sm.cor};background:${sm.bg}">${sm.label}${diasStatusTxt}</span></td>
     <td><div class="chips-cell">${chips}</div></td>
     <td style="font-family:'IBM Plex Mono',monospace;font-size:12px">${proxTxt}</td>
@@ -1447,8 +1465,10 @@ function rowHTML(e, docF){
             <a class="clear-date" data-quick-date="${e.id}-${escapeHTML(sigla)}" data-meses="24" href="#" title="Define para daqui a 2 anos a partir de hoje">+2 anos</a>
             <a class="clear-date" data-clear="${e.id}-${escapeHTML(sigla)}" href="#">limpar</a>
           </div>
+          <div class="cert-box" data-cert-colab="${escapeHTML(e.id)}" data-cert-sigla="${escapeHTML(sigla)}">${certBoxHTML(e.id, sigla)}</div>
         </div>`).join('')}
       </div>
+      <div style="font-size:11px;color:var(--text-dim);margin:8px 2px 0;">📎 Os certificados anexados são salvos na hora, sem precisar clicar em "Salvar colaborador". PDF ou foto, até 4 MB cada.</div>
       <div class="edit-actions">
         <button class="btn ghost" data-cancel-edit="${e.id}">Cancelar</button>
         <button class="btn primary" data-save-edit="${e.id}">Salvar colaborador</button>
@@ -1502,6 +1522,187 @@ function addNew(){
     const el = document.getElementById(`fld-nome-${id}`);
     if(el){ el.focus(); el.select(); el.scrollIntoView({behavior:'smooth', block:'center'}); }
   }, 50);
+}
+
+// ---------- Certificados anexados (PDF ou foto) ----------
+const CERT_MAX_BYTES = 4 * 1024 * 1024;
+const MSG_CERT = {
+  arquivo_muito_grande: 'O arquivo passa de 4 MB.',
+  tipo_nao_permitido: 'Formato não aceito. Envie PDF ou foto (JPG, PNG).',
+  limite_de_certificados_no_documento: 'Este documento já tem 10 certificados anexados.',
+  armazenamento_cheio: 'O espaço de armazenamento de certificados está cheio.',
+  colaborador_nao_encontrado: 'Salve o colaborador antes de anexar certificados.',
+  arquivo_vazio: 'O arquivo está vazio.',
+  documento_invalido: 'Documento inválido.',
+};
+
+function fmtTam(bytes){
+  return bytes >= 1024 * 1024 ? (bytes / 1024 / 1024).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(bytes / 1024)) + ' KB';
+}
+
+function certsDo(colabId, sigla){
+  return CERTS.filter(c => c.colaborador_id === colabId && c.sigla === sigla);
+}
+
+function certBoxHTML(colabId, sigla){
+  const colab = DATA.find(x => x.id === colabId);
+  if(colab && colab._novo) return `<span class="cert-dica">Salve o colaborador para poder anexar certificados.</span>`;
+  const itens = certsDo(colabId, sigla).map(c => `
+    <div class="cert-item">
+      <span class="cert-nome" title="${escapeHTML(c.nome_arquivo)}">${c.tipo === 'application/pdf' ? '📄' : '🖼️'} ${escapeHTML(c.nome_arquivo)}</span>
+      <span class="cert-tam">${fmtTam(c.tamanho)}</span>
+      <a class="clear-date" href="#" data-cert-ver="${escapeHTML(c.id)}">ver</a>
+      <a class="clear-date" href="#" data-cert-baixar="${escapeHTML(c.id)}">baixar</a>
+      <a class="clear-date" href="#" data-cert-del="${escapeHTML(c.id)}">excluir</a>
+    </div>`).join('');
+  return `${itens}
+    <span class="cert-status"></span>
+    <label class="clear-date cert-add">📎 Anexar certificado
+      <input type="file" multiple accept="application/pdf,image/*,.pdf" data-cert-input style="display:none;">
+    </label>`;
+}
+
+function renderCertBox(colabId, sigla){
+  document.querySelectorAll('[data-cert-colab]').forEach(box => {
+    if(box.dataset.certColab === colabId && box.dataset.certSigla === sigla) box.innerHTML = certBoxHTML(colabId, sigla);
+  });
+}
+
+async function carregarImagemCert(file){
+  if(window.createImageBitmap){
+    try{ return await createImageBitmap(file, {imageOrientation: 'from-image'}); }catch(err){ /* tenta o jeito antigo */ }
+  }
+  const url = URL.createObjectURL(file);
+  try{
+    return await new Promise((ok, erro) => {
+      const img = new Image();
+      img.onload = () => ok(img);
+      img.onerror = () => erro(new Error('não consegui abrir a imagem'));
+      img.src = url;
+    });
+  } finally { setTimeout(() => URL.revokeObjectURL(url), 5000); }
+}
+
+// Fotos do celular têm vários MB: reduz para no máximo 1800 px (continua legível) antes de enviar.
+async function prepararArquivoCert(file){
+  const nome = file.name || 'certificado';
+  if(file.type === 'application/pdf' || /\.pdf$/i.test(nome)){
+    if(file.size > CERT_MAX_BYTES) throw new Error(`O PDF tem ${fmtTam(file.size)} e o limite é 4 MB. Reduza o arquivo ou tire uma foto do certificado.`);
+    return {blob: file, nome};
+  }
+  if(/^image\//.test(file.type) || /\.(jpe?g|png|webp)$/i.test(nome)){
+    const img = await carregarImagemCert(file);
+    const escala = Math.min(1, 1800 / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * escala)), h = Math.max(1, Math.round(img.height * escala));
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    const reduzida = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.82));
+    if(!reduzida) throw new Error('não consegui processar a imagem');
+    const manterOriginal = file.size <= reduzida.size && /^image\/(jpeg|png)$/.test(file.type);
+    const blob = manterOriginal ? file : reduzida;
+    if(blob.size > CERT_MAX_BYTES) throw new Error('A imagem continua acima de 4 MB mesmo depois de reduzida.');
+    return {blob, nome: manterOriginal ? nome : nome.replace(/\.[^.]+$/, '') + '.jpg'};
+  }
+  throw new Error('Formato não aceito. Envie PDF ou foto (JPG, PNG).');
+}
+
+async function enviarCertificados(colabId, sigla, arquivos){
+  for(const file of arquivos){
+    const statusEl = () => {
+      const box = Array.from(document.querySelectorAll('[data-cert-colab]')).find(b => b.dataset.certColab === colabId && b.dataset.certSigla === sigla);
+      return box ? box.querySelector('.cert-status') : null;
+    };
+    const marca = statusEl();
+    if(marca) marca.textContent = `Enviando ${file.name}…`;
+    try{
+      const prep = await prepararArquivoCert(file);
+      const q = `colaborador_id=${encodeURIComponent(colabId)}&sigla=${encodeURIComponent(sigla)}&nome=${encodeURIComponent(prep.nome)}`;
+      const r = await apiFetch('/api/certificado?' + q, {method: 'POST', body: prep.blob, headers: {'Content-Type': prep.blob.type || 'application/octet-stream'}});
+      CERTS.push(r.certificado);
+      renderCertBox(colabId, sigla);
+      showToast(`Certificado "${r.certificado.nome_arquivo}" anexado.`);
+    }catch(err){
+      renderCertBox(colabId, sigla);
+      showToast(`${file.name}: ${MSG_CERT[err.message] || err.message}`, 'error');
+    }
+  }
+  renderTable();
+}
+
+async function buscarCertificadoBlob(id, baixar){
+  let caminho = '/api/certificado?id=' + encodeURIComponent(id) + (baixar ? '&baixar=1' : '');
+  if(EMPRESA_ATUAL && EMPRESA_ATUAL.id) caminho += '&empresa_id=' + EMPRESA_ATUAL.id;
+  const res = await fetch(caminho, {headers: {'Authorization': 'Bearer ' + AUTH_TOKEN}});
+  if(res.status === 401){ encerrarSessao(); throw new Error('sessao_expirada'); }
+  if(!res.ok) throw new Error('não foi possível carregar o arquivo');
+  return res.blob();
+}
+
+function salvarBlobComo(blob, nome){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nome;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+async function baixarCertificado(id){
+  const c = CERTS.find(x => x.id === id);
+  if(!c) return;
+  try{ salvarBlobComo(await buscarCertificadoBlob(id, true), c.nome_arquivo); }
+  catch(err){ showToast('Não foi possível baixar: ' + err.message, 'error'); }
+}
+
+async function verCertificado(id){
+  const c = CERTS.find(x => x.id === id);
+  if(!c) return;
+  try{
+    const blob = await buscarCertificadoBlob(id, false);
+    const url = URL.createObjectURL(blob);
+    if(c.tipo === 'application/pdf'){
+      const a = document.createElement('a');
+      a.href = url; a.target = '_blank'; a.rel = 'noopener';
+      document.body.appendChild(a); a.click(); a.remove();
+      showToast('Se o PDF não abriu, toque em "baixar".');
+      setTimeout(() => URL.revokeObjectURL(url), 120000);
+      return;
+    }
+    const fundo = document.createElement('div');
+    fundo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:400;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:14px;gap:10px;';
+    fundo.innerHTML = `<img alt="${escapeHTML(c.nome_arquivo)}" style="max-width:100%;max-height:82vh;object-fit:contain;background:#fff;border-radius:4px;">
+      <div style="display:flex;gap:8px;"><button class="btn" data-fechar-cert>Fechar</button></div>`;
+    fundo.querySelector('img').src = url;
+    const fechar = () => { fundo.remove(); URL.revokeObjectURL(url); };
+    fundo.addEventListener('click', ev => { if(ev.target === fundo || ev.target.hasAttribute('data-fechar-cert')) fechar(); });
+    document.body.appendChild(fundo);
+  }catch(err){
+    showToast('Não foi possível abrir: ' + err.message, 'error');
+  }
+}
+
+async function excluirCertificado(id){
+  const c = CERTS.find(x => x.id === id);
+  if(!c) return;
+  if(!confirm(`Excluir o certificado "${c.nome_arquivo}"?`)) return;
+  try{
+    await apiFetch('/api/certificado?id=' + encodeURIComponent(id), {method: 'DELETE'});
+    CERTS = CERTS.filter(x => x.id !== id);
+    renderCertBox(c.colaborador_id, c.sigla);
+    renderTable();
+    showToast('Certificado excluído.', null, {label: 'Desfazer', onClick: async () => {
+      try{
+        await apiFetch('/api/certificado?id=' + encodeURIComponent(id), {method: 'PUT'});
+        CERTS.push(c);
+        renderTable();
+        showToast('Exclusão desfeita.');
+      }catch(err){ showToast('Não foi possível desfazer: ' + err.message, 'error'); }
+    }});
+  }catch(err){
+    showToast('Não foi possível excluir: ' + err.message, 'error');
+  }
 }
 
 // ---------- Importação em lote ----------
@@ -2270,6 +2471,23 @@ async function iniciarApp(){
   });
 
   document.getElementById('addBtn').addEventListener('click', addNew);
+  const tbodyCert = document.getElementById('tableBody');
+  tbodyCert.addEventListener('click', ev => {
+    const a = ev.target.closest('[data-cert-ver],[data-cert-baixar],[data-cert-del]');
+    if(!a) return;
+    ev.preventDefault();
+    if(a.dataset.certVer) verCertificado(a.dataset.certVer);
+    else if(a.dataset.certBaixar) baixarCertificado(a.dataset.certBaixar);
+    else if(a.dataset.certDel) excluirCertificado(a.dataset.certDel);
+  });
+  tbodyCert.addEventListener('change', ev => {
+    const input = ev.target.closest('input[data-cert-input]');
+    if(!input) return;
+    const box = input.closest('[data-cert-colab]');
+    const arquivos = Array.from(input.files || []);
+    input.value = '';
+    if(box && arquivos.length) enviarCertificados(box.dataset.certColab, box.dataset.certSigla, arquivos);
+  });
   document.getElementById('importBtn').addEventListener('click', abrirImport);
   document.getElementById('importCancelar').addEventListener('click', () => {
     document.getElementById('importModal').style.display = 'none';
