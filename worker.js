@@ -258,7 +258,7 @@ async function handleColaborador(request, env, url) {
       for (const [sigla, valor] of Object.entries(body.docs)) {
         if (!siglasValidas.has(sigla)) continue;
         if (valor === null || valor === '' || valor === undefined) { docs[sigla] = null; continue; }
-        if (typeof valor !== 'string' || !DATA_ISO.test(valor) || Number.isNaN(Date.parse(valor))) return json({ error: 'data_invalida', sigla }, 400);
+        if (!dataValida(valor)) return json({ error: 'data_invalida', sigla }, 400);
         docs[sigla] = valor;
       }
     }
@@ -299,6 +299,51 @@ async function handleColaborador(request, env, url) {
   return json({ error: 'method_not_allowed' }, 405);
 }
 
+const LIMITE_IMPORTACAO = 2000;
+const TAMANHO_LOTE_D1 = 80;
+
+function normalizarNome(nome) {
+  return String(nome || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+// Data AAAA-MM-DD que realmente existe no calendário (recusa 2026-02-30, por exemplo).
+function dataValida(v) {
+  if (typeof v !== 'string' || !DATA_ISO.test(v)) return false;
+  const [y, m, d] = v.split('-').map(Number);
+  if (y < 1900 || y > 2200) return false;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+function limparNotas(notas) {
+  const lista = Array.isArray(notas) ? notas : (typeof notas === 'string' && notas.trim() ? notas.split(',') : []);
+  return lista.map(n => String(n).replace(/\s+/g, ' ').trim().slice(0, 500)).filter(Boolean).slice(0, 50);
+}
+
+// Devolve { docs } com só as datas válidas de tipos que existem, ou { erro } se alguma data for inválida.
+// Valor vazio vira null (= "não informado"; nunca apaga uma data que já exista).
+function limparDocs(docsBrutos, siglasValidas) {
+  const docs = {};
+  if (docsBrutos && typeof docsBrutos === 'object') {
+    for (const [sigla, valor] of Object.entries(docsBrutos)) {
+      if (!siglasValidas.has(sigla)) continue;
+      if (valor === null || valor === undefined || valor === '') { docs[sigla] = null; continue; }
+      if (!dataValida(valor)) return { erro: `data inválida em ${sigla}` };
+      docs[sigla] = valor;
+    }
+  }
+  return { docs };
+}
+
+async function executarEmLotes(db, stmts) {
+  for (let i = 0; i < stmts.length; i += TAMANHO_LOTE_D1) {
+    await db.batch(stmts.slice(i, i + TAMANHO_LOTE_D1));
+  }
+}
+
+// Importação em lote.
+//  { registros:[{nome, notas?, docs?:{SIGLA:'AAAA-MM-DD'}}], modo:'ignorar'|'atualizar' }  (ou o formato antigo { nomes:[...] })
+//  { desfazer:{ criados:[ids], atualizados:[{id, notas, docs}] } }  desfaz uma importação feita há pouco
 async function handleColaboradorLote(request, env, url) {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   const session = await obterSessao(request, env);
@@ -310,35 +355,114 @@ async function handleColaboradorLote(request, env, url) {
 
   let body;
   try { body = await request.json(); } catch { return json({ error: 'invalid_body' }, 400); }
-  if (!Array.isArray(body.nomes)) return json({ error: 'nomes_obrigatorios' }, 400);
-  if (body.nomes.length > 500) return json({ error: 'limite_500_nomes' }, 400);
 
-  const { results: existentes } = await db.prepare('SELECT nome FROM colaboradores WHERE empresa_id = ? AND deletado_em IS NULL').bind(empresaId).all();
-  const vistos = new Set(existentes.map(c => c.nome.trim().toLowerCase()));
-  const novos = [];
-  let ignorados = 0;
-  for (const bruto of body.nomes) {
-    const nome = String(bruto || '').replace(/\s+/g, ' ').trim().slice(0, 200);
-    if (!nome) continue;
-    const chave = nome.toLowerCase();
-    if (vistos.has(chave)) { ignorados++; continue; }
-    vistos.add(chave);
-    novos.push(nome);
+  const { results: tipos } = await db.prepare('SELECT sigla FROM doc_types WHERE empresa_id = ?').bind(empresaId).all();
+  const siglasValidas = new Set(tipos.map(t => t.sigla));
+
+  if (body.desfazer && typeof body.desfazer === 'object') {
+    const criados = Array.isArray(body.desfazer.criados) ? body.desfazer.criados.map(String).slice(0, LIMITE_IMPORTACAO) : [];
+    const atualizados = Array.isArray(body.desfazer.atualizados) ? body.desfazer.atualizados.slice(0, LIMITE_IMPORTACAO) : [];
+    const agora = new Date().toISOString();
+    const stmts = [];
+    for (const id of criados) {
+      stmts.push(db.prepare('UPDATE colaboradores SET deletado_em = ? WHERE id = ? AND empresa_id = ? AND deletado_em IS NULL').bind(agora, id, empresaId));
+    }
+    let restaurados = 0;
+    for (const item of atualizados) {
+      if (!item || typeof item.id !== 'string') continue;
+      const lim = limparDocs(item.docs, siglasValidas);
+      if (lim.erro) continue;
+      stmts.push(db.prepare("UPDATE colaboradores SET notas = ?, docs = ?, updated_at = datetime('now') WHERE id = ? AND empresa_id = ? AND deletado_em IS NULL")
+        .bind(JSON.stringify(limparNotas(item.notas)), JSON.stringify(lim.docs), item.id, empresaId));
+      restaurados++;
+    }
+    await executarEmLotes(db, stmts);
+    await regHist(db, request, session.username, `Desfez a última importação (${criados.length} cadastro(s) enviados à lixeira, ${restaurados} restaurado(s) ao estado anterior)`, 'dados', empresaId);
+    return json({ ok: true, removidos: criados.length, restaurados });
   }
 
+  let registros;
+  if (Array.isArray(body.registros)) registros = body.registros;
+  else if (Array.isArray(body.nomes)) registros = body.nomes.map(nome => ({ nome }));
+  else return json({ error: 'registros_obrigatorios' }, 400);
+  if (registros.length > LIMITE_IMPORTACAO) return json({ error: 'limite_de_registros', limite: LIMITE_IMPORTACAO }, 400);
+  const atualizar = body.modo === 'atualizar';
+
+  const { results: existentes } = await db.prepare('SELECT id, nome, notas, docs FROM colaboradores WHERE empresa_id = ? AND deletado_em IS NULL').bind(empresaId).all();
+  const mapa = new Map();
+  for (const e of existentes) {
+    let notas = [], docs = {};
+    try { notas = JSON.parse(e.notas) || []; } catch { /* mantém vazio */ }
+    try { docs = JSON.parse(e.docs) || {}; } catch { /* mantém vazio */ }
+    mapa.set(normalizarNome(e.nome), { id: e.id, nome: e.nome, notas, docs, existente: true, anterior: null });
+  }
+
+  const novos = [];
+  const alterados = new Map();
+  const erros = [];
+  let ignorados = 0, semMudanca = 0;
+
+  registros.forEach((r, i) => {
+    const nome = String((r && r.nome) || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (!nome) return;
+    const lim = limparDocs(r.docs, siglasValidas);
+    if (lim.erro) { erros.push({ nome, motivo: lim.erro }); return; }
+    const notas = limparNotas(r.notas);
+    const chave = normalizarNome(nome);
+    const atual = mapa.get(chave);
+
+    if (!atual) {
+      const reg = { id: null, nome, notas, docs: lim.docs, existente: false };
+      mapa.set(chave, reg);
+      novos.push(reg);
+      return;
+    }
+    if (!atualizar) { ignorados++; return; }
+
+    const antesDocs = JSON.stringify(atual.docs), antesNotas = JSON.stringify(atual.notas);
+    const docsNovos = { ...atual.docs };
+    for (const [sigla, valor] of Object.entries(lim.docs)) if (valor !== null) docsNovos[sigla] = valor;
+    const notasNovas = notas.length ? notas : atual.notas;
+    if (JSON.stringify(docsNovos) === antesDocs && JSON.stringify(notasNovas) === antesNotas) { semMudanca++; return; }
+    if (atual.existente && !atual.anterior) atual.anterior = { notas: atual.notas, docs: atual.docs };
+    atual.docs = docsNovos;
+    atual.notas = notasNovas;
+    if (atual.existente) alterados.set(atual.id, atual);
+  });
+
+  const stmts = [];
   if (novos.length > 0) {
     const { results } = await db.prepare('SELECT COALESCE(MAX(ordem), 0) AS max FROM colaboradores WHERE empresa_id = ?').bind(empresaId).all();
     let ordem = results[0].max;
-    const stmts = novos.map(nome => {
+    novos.forEach((n, i) => {
       ordem += 1;
-      const id = 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
-      return db.prepare('INSERT INTO colaboradores (id, nome, notas, docs, ordem, empresa_id) VALUES (?, ?, ?, ?, ?, ?)')
-        .bind(id, nome, '[]', '{}', ordem, empresaId);
+      n.id = 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8) + i.toString(36);
+      stmts.push(db.prepare('INSERT INTO colaboradores (id, nome, notas, docs, ordem, empresa_id) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(n.id, n.nome, JSON.stringify(n.notas), JSON.stringify(n.docs), ordem, empresaId));
     });
-    await db.batch(stmts);
-    await regHist(db, request, session.username, `Importou lista com ${novos.length} colaborador(es)` + (ignorados ? ` (${ignorados} repetido(s) ignorado(s))` : ''), 'dados', empresaId);
   }
-  return json({ ok: true, criados: novos.length, ignorados });
+  for (const a of alterados.values()) {
+    stmts.push(db.prepare("UPDATE colaboradores SET notas = ?, docs = ?, updated_at = datetime('now') WHERE id = ? AND empresa_id = ?")
+      .bind(JSON.stringify(a.notas), JSON.stringify(a.docs), a.id, empresaId));
+  }
+  await executarEmLotes(db, stmts);
+
+  const criados = novos.length, atualizados = alterados.size;
+  if (criados > 0 || atualizados > 0) {
+    const partes = [`${criados} novo(s)`];
+    if (atualizar) partes.push(`${atualizados} atualizado(s)`);
+    if (ignorados) partes.push(`${ignorados} já existente(s) pulado(s)`);
+    if (semMudanca) partes.push(`${semMudanca} sem mudança`);
+    if (erros.length) partes.push(`${erros.length} com erro`);
+    await regHist(db, request, session.username, `Importou lista de colaboradores: ${partes.join(', ')}`, 'dados', empresaId);
+  }
+  return json({
+    ok: true, criados, atualizados, ignorados, semMudanca, erros,
+    desfazer: {
+      criados: novos.map(n => n.id),
+      atualizados: [...alterados.values()].map(a => ({ id: a.id, notas: a.anterior.notas, docs: a.anterior.docs })),
+    },
+  });
 }
 
 async function handleDoctype(request, env, url) {
