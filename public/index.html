@@ -1718,6 +1718,9 @@ let ULTIMA_IMPORTACAO = null; // dados para desfazer; valem enquanto a página e
 function normTexto(s){
   return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
 }
+function chaveNome(s){
+  return normTexto(s).split(' ').filter(p => p && !['de','da','do','dos','das','e'].includes(p)).join(' ');
+}
 function normChave(s){ return normTexto(s).replace(/[^a-z0-9]/g,''); }
 
 function dataISOValida(iso){
@@ -1863,13 +1866,13 @@ function tabelaParaRegistros(linhas){
 // Espelha o que o servidor vai fazer, para a prévia bater com o resultado.
 function simularImportacao(registros, modo){
   const mapa = new Map();
-  DATA.forEach(e => mapa.set(normTexto(e.nome), {docs: Object.assign({}, e.docs), notas: (e.notas || []).slice(), existente: true}));
+  DATA.forEach(e => mapa.set(chaveNome(e.nome), {docs: Object.assign({}, e.docs), notas: (e.notas || []).slice(), existente: true}));
   const c = {novos:0, atualizar:0, iguais:0, pulados:0, mesclados:0, erros:0};
   const alterados = new Set();
   const itens = registros.map(r => {
     const item = Object.assign({}, r, {situacao: ''});
     if(r.erros.length){ item.situacao = 'erro'; c.erros++; return item; }
-    const chave = normTexto(r.nome);
+    const chave = chaveNome(r.nome);
     const atual = mapa.get(chave);
     if(!atual){
       mapa.set(chave, {docs: Object.assign({}, r.docs), notas: r.notas.slice(), existente: false});

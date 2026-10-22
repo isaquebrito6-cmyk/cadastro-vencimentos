@@ -318,8 +318,11 @@ async function handleColaborador(request, env, url) {
 const LIMITE_IMPORTACAO = 2000;
 const TAMANHO_LOTE_D1 = 80;
 
+// Chave de comparação de nomes: ignora acento, caixa e as partículas "de/da/do/dos/das/e"
+// ("ISAQUE PROCOPIO BRITO" = "Isaque Procópio de Brito"), para a importação não duplicar a mesma pessoa.
 function normalizarNome(nome) {
-  return String(nome || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  return String(nome || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .split(/\s+/).filter(p => p && !['de', 'da', 'do', 'dos', 'das', 'e'].includes(p)).join(' ').trim();
 }
 
 // Data AAAA-MM-DD que realmente existe no calendário (recusa 2026-02-30, por exemplo).
