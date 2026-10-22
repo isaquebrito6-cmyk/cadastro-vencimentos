@@ -651,6 +651,7 @@ let CFG = {avisoDias: 30, notifAtivado: false, empresa: 'Verzani e Sandrini'};
 let sortKey = 'nome';
 let sortDir = 1;
 let openEditId = null;
+let CAMPOS_EXTRA = {};   // colaborador_id -> siglas vazias que a pessoa pediu para preencher agora
 let CERTS = [];   // certificados anexados (só os dados; o arquivo é baixado quando a pessoa pede)
 
 let EMPRESA_ATUAL = null;
@@ -1404,7 +1405,7 @@ function renderTable(){
     }
   }));
   tbody.querySelectorAll('[data-save-edit]').forEach(btn => btn.addEventListener('click', () => saveEdit(btn.dataset.saveEdit)));
-  tbody.querySelectorAll('[data-cancel-edit]').forEach(btn => btn.addEventListener('click', () => { openEditId = null; renderTable(); }));
+  tbody.querySelectorAll('[data-cancel-edit]').forEach(btn => btn.addEventListener('click', () => { delete CAMPOS_EXTRA[btn.dataset.cancelEdit]; openEditId = null; renderTable(); }));
   tbody.querySelectorAll('[data-clear]').forEach(btn => btn.addEventListener('click', (ev) => {
     ev.preventDefault();
     const input = document.querySelector(`input[data-date-for="${btn.dataset.clear}"]`);
@@ -1455,12 +1456,12 @@ function rowHTML(e, docF){
   const chips = DOC_ORDER.map(sigla => {
     const d = e.docs[sigla];
     const st = statusFor(d);
-    if(st === 'sem_registro') return `<div class="doc-chip sr" title="${escapeHTML(sigla)}: sem registro">·</div>`;
+    if(st === 'sem_registro') return '';
     const stm = STATUS_META[st];
     const meta = DOC_META[sigla];
     const rot = rotuloChip(sigla);
     return `<div class="doc-chip" style="background:${meta.cor};border:2px solid ${stm.cor}" title="${escapeHTML(sigla)}: ${stm.label} — ${fmtDate(d)}"><span class="chip-top">${escapeHTML(rot.top)}</span>${rot.bottom ? `<span class="chip-bottom">${escapeHTML(rot.bottom)}</span>` : ''}</div>`;
-  }).join('');
+  }).join('') || '<span style="color:var(--text-dim);font-size:12px;">sem documentos</span>';
 
   let proxTxt;
   if(docF){
@@ -1498,7 +1499,7 @@ function rowHTML(e, docF){
           <input type="text" id="fld-notas-${e.id}" value="${escapeHTML((e.notas||[]).join(', '))}" placeholder="opcional">
         </div>
         ${fotoBoxHTML(e)}
-        ${DOC_ORDER.map(sigla => `
+        ${DOC_ORDER.filter(sigla => e.docs[sigla] || (CAMPOS_EXTRA[e.id] || []).includes(sigla)).map(sigla => `
         <div class="field">
           <label>${escapeHTML(sigla)}</label>
           <input type="date" data-date-for="${e.id}-${escapeHTML(sigla)}" id="fld-doc-${e.id}-${escapeHTML(sigla)}" value="${e.docs[sigla]||''}">
@@ -1509,6 +1510,11 @@ function rowHTML(e, docF){
           </div>
           <div class="cert-box" data-cert-colab="${escapeHTML(e.id)}" data-cert-sigla="${escapeHTML(sigla)}">${certBoxHTML(e.id, sigla)}</div>
         </div>`).join('')}
+        ${(() => {
+          const vazios = DOC_ORDER.filter(sg => !e.docs[sg] && !(CAMPOS_EXTRA[e.id] || []).includes(sg));
+          return vazios.length ? `<div class="field wide"><label>Adicionar documento / NR</label>
+            <select data-add-doc="${escapeHTML(e.id)}"><option value="">Escolha para preencher a data…</option>${vazios.map(sg => `<option value="${escapeHTML(sg)}">${escapeHTML(sg)}${DOC_TYPES[sg] && DOC_TYPES[sg].nome && DOC_TYPES[sg].nome !== sg ? ' — ' + escapeHTML(DOC_TYPES[sg].nome) : ''}</option>`).join('')}</select></div>` : '';
+        })()}
       </div>
       <div style="font-size:11px;color:var(--text-dim);margin:8px 2px 0;">📎 Os certificados anexados são salvos na hora, sem precisar clicar em "Salvar colaborador". PDF ou foto, até 4 MB cada.</div>
       <div class="edit-actions">
@@ -1538,11 +1544,12 @@ async function saveEdit(id){
   const notas = notasRaw ? notasRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
   const docs = {};
   DOC_ORDER.forEach(sigla => {
-    const val = document.getElementById(`fld-doc-${id}-${sigla}`).value;
-    docs[sigla] = val || null;
+    const campo = document.getElementById(`fld-doc-${id}-${sigla}`);
+    docs[sigla] = campo ? (campo.value || null) : (e.docs[sigla] || null);   // campo oculto (vazio) continua vazio
   });
   try{
     await apiFetch('/api/colaborador', {method:'POST', body: JSON.stringify({id: eraNovo ? null : id, nome, notas, docs})});
+    delete CAMPOS_EXTRA[id];
     openEditId = null;
     await refreshData();
     showToast(duplicado ? `Colaborador salvo. Atenção: já existe outro "${nome}" cadastrado.` : 'Colaborador salvo.');
@@ -3008,6 +3015,15 @@ async function iniciarApp(){
     ev.preventDefault();
     if(a.dataset.cardSigla) abrirCarteira(a.dataset.cardColab, a.dataset.cardSigla);
     else if(a.dataset.fotoDel) removerFoto(a.dataset.fotoDel);
+  });
+  tbodyCert.addEventListener('change', ev => {
+    const sel = ev.target.closest('select[data-add-doc]');
+    if(!sel || !sel.value) return;
+    const id = sel.dataset.addDoc, sg = sel.value;
+    (CAMPOS_EXTRA[id] = CAMPOS_EXTRA[id] || []).push(sg);
+    renderTable();
+    const campo = document.getElementById(`fld-doc-${id}-${sg}`);
+    if(campo){ campo.focus(); if(campo.showPicker){ try{ campo.showPicker(); }catch(_){} } }
   });
   tbodyCert.addEventListener('change', ev => {
     const inp = ev.target.closest('input[data-foto-input]');
