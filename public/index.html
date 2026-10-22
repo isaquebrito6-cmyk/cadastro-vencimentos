@@ -409,8 +409,8 @@
     <div class="field" style="margin-bottom:10px;">
       <label for="importModo">Quando o nome já estiver cadastrado</label>
       <select id="importModo" style="width:100%;">
+        <option value="atualizar">Atualizar com as datas e observações da planilha (recomendado)</option>
         <option value="ignorar">Pular (não mexer no cadastro existente)</option>
-        <option value="atualizar">Atualizar com as datas e observações da planilha</option>
       </select>
     </div>
     <div id="importResumo" style="font-size:13px;font-weight:600;color:var(--text);min-height:18px;margin-bottom:6px;"></div>
@@ -1838,6 +1838,12 @@ function identidadeNR(texto){
     let id = 'NR' + m[1];
     if(m[2]) id += '/' + m[2];
     if(/\bSUP\b|\bSUPERVIS/.test(u)) id += 'SUP';
+    // O que vem depois do número distingue treinamentos diferentes da mesma NR
+    // (ex.: "NR 11/18 OP. REBO" e "NR 11/18 OP.EMP" não são a "NR-11/18").
+    const resto = u.slice(m.index + m[0].length)
+      .replace(/\b(SUP|SUPERVISOR|SUPERVISORES|DATA|VENCIMENTO|VENC|VALIDADE|REALIZACAO|DT|DO|DE|DA|EM|CURSO|TREINAMENTO)\b/g, ' ')
+      .replace(/[^A-Z0-9]/g, '');
+    if(resto) id += '|' + resto;
     return id;
   }
   return normChave(u);
@@ -1990,6 +1996,24 @@ function renderPreviaImport(){
     else if(c.pulados) partes.push(`${c.pulados} já cadastrada(s), serão puladas`);
     if(c.erros) partes.push(`${c.erros} com erro (não serão importadas)`);
     resumo.textContent = partes.join(' · ');
+  }
+  // Quantas datas foram lidas em cada coluna de documento (mostra na hora se uma NR veio vazia ou em formato estranho).
+  const linhasImp = obterLinhasImport();
+  const mapaCols = linhasImp.length ? mapearColunas(linhasImp[0].cels) : null;
+  if(mapaCols && registros.length){
+    const lidas = {};
+    Object.keys(mapaCols.docs).forEach(sg => { lidas[sg] = 0; });
+    registros.forEach(r => Object.keys(r.docs).forEach(sg => { lidas[sg] = (lidas[sg] || 0) + 1; }));
+    const colunas = Object.keys(lidas);
+    if(colunas.length){
+      avisos.push('Datas lidas por coluna: ' + colunas.map(sg => `${sg} ${lidas[sg]}`).join(' · ') + '.');
+      const zeradas = colunas.filter(sg => lidas[sg] === 0);
+      if(zeradas.length) avisos.push('Nenhuma data lida em: ' + zeradas.join(', ') + '. Confira se a coluna tem datas (dd/mm/aaaa) e se o cabeçalho é a coluna certa.');
+    }
+  }
+  if(modo !== 'atualizar'){
+    const puladosComData = itens.filter(i => i.situacao === 'pular' && Object.keys(i.docs).length).length;
+    if(puladosComData) avisos.push(`${puladosComData} colaborador(es) já cadastrado(s) têm datas na planilha que NÃO serão aplicadas no modo "Pular". Escolha "Atualizar" para gravá-las.`);
   }
   document.getElementById('importAvisos').innerHTML = avisos.map(a => '⚠ ' + escapeHTML(a)).join('<br>');
   const erros = itens.filter(i => i.situacao === 'erro');

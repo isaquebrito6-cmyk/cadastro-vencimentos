@@ -371,6 +371,29 @@ async function executarEmLotes(db, stmts) {
 // Importação em lote.
 //  { registros:[{nome, notas?, docs?:{SIGLA:'AAAA-MM-DD'}}], modo:'ignorar'|'atualizar' }  (ou o formato antigo { nomes:[...] })
 //  { desfazer:{ criados:[ids], atualizados:[{id, notas, docs}] } }  desfaz uma importação feita há pouco
+// "NR-35", "NR 35" e "NR35" são o mesmo tipo. ASO = NR-07, LOTO = NR-10/12, supervisor = NR-33 SUP.
+// O que vem depois do número distingue treinamentos diferentes (ex.: "NR 11/18 OP. REBO" ≠ "NR-11/18").
+function chaveSigla(x) {
+  return String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+function identidadeNR(texto) {
+  const u = String(texto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  if (/\bASO\b/.test(u) || /\bNR\s*-?\s*0*7\b/.test(u)) return 'ASO';
+  if (/\bLOTO\b/.test(u) || /NR\s*-?\s*10\s*[\/.\-]\s*12/.test(u)) return 'LOTO';
+  const m = u.match(/NR\s*-?\s*0*(\d{1,2})(?:\s*[\/.\-]\s*0*(\d{1,2}))?/);
+  if (m) {
+    let id = 'NR' + m[1];
+    if (m[2]) id += '/' + m[2];
+    if (/\bSUP\b|\bSUPERVIS/.test(u)) id += 'SUP';
+    const resto = u.slice(m.index + m[0].length)
+      .replace(/\b(SUP|SUPERVISOR|SUPERVISORES|DATA|VENCIMENTO|VENC|VALIDADE|REALIZACAO|DT|DO|DE|DA|EM|CURSO|TREINAMENTO)\b/g, ' ')
+      .replace(/[^A-Z0-9]/g, '');
+    if (resto) id += '|' + resto;
+    return id;
+  }
+  return chaveSigla(u);
+}
+
 async function handleColaboradorLote(request, env, url) {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   const session = await obterSessao(request, env);
@@ -386,20 +409,6 @@ async function handleColaboradorLote(request, env, url) {
   const { results: tipos } = await db.prepare('SELECT sigla, nome FROM doc_types WHERE empresa_id = ?').bind(empresaId).all();
   const siglasValidas = new Set(tipos.map(t => t.sigla));
   // "NR-35", "NR 35" e "NR35" são o mesmo tipo. ASO = NR-07, LOTO = NR-10/12, supervisor = NR-33 SUP.
-  const chaveSigla = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const identidadeNR = (texto) => {
-    const u = String(texto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
-    if (/\bASO\b/.test(u) || /\bNR\s*-?\s*0*7\b/.test(u)) return 'ASO';
-    if (/\bLOTO\b/.test(u) || /NR\s*-?\s*10\s*[\/.\-]\s*12/.test(u)) return 'LOTO';
-    const m = u.match(/NR\s*-?\s*0*(\d{1,2})(?:\s*[\/.\-]\s*0*(\d{1,2}))?/);
-    if (m) {
-      let id = 'NR' + m[1];
-      if (m[2]) id += '/' + m[2];
-      if (/\bSUP\b|\bSUPERVIS/.test(u)) id += 'SUP';
-      return id;
-    }
-    return chaveSigla(u);
-  };
   const porChave = new Map();
   const registrar = (texto, sigla) => {
     for (const k of [chaveSigla(texto), identidadeNR(texto)]) {
@@ -801,20 +810,6 @@ async function handleDoctype(request, env, url) {
     if (!nome) return json({ error: 'nome_obrigatorio' }, 400);
     if (nome.length > 200) return json({ error: 'nome_muito_longo' }, 400);
     const { results: todosTipos } = await db.prepare('SELECT sigla, nome FROM doc_types WHERE empresa_id = ?').bind(empresaId).all();
-    const chaveSigla = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const identidadeNR = (texto) => {
-      const u = String(texto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
-      if (/\bASO\b/.test(u) || /\bNR\s*-?\s*0*7\b/.test(u)) return 'ASO';
-      if (/\bLOTO\b/.test(u) || /NR\s*-?\s*10\s*[\/.\-]\s*12/.test(u)) return 'LOTO';
-      const m = u.match(/NR\s*-?\s*0*(\d{1,2})(?:\s*[\/.\-]\s*0*(\d{1,2}))?/);
-      if (m) {
-        let id = 'NR' + m[1];
-        if (m[2]) id += '/' + m[2];
-        if (/\bSUP\b|\bSUPERVIS/.test(u)) id += 'SUP';
-        return id;
-      }
-      return chaveSigla(u);
-    };
     const idNova = identidadeNR(sigla);
     for (const t of todosTipos) {
       if (t.sigla === sigla || identidadeNR(t.sigla) === idNova || identidadeNR(t.nome) === idNova) {
