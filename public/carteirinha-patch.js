@@ -1,4 +1,4 @@
-/* Patch v3: logo auto + 2 assinaturas digitais + excluir empresa + funcao na carteirinha */
+/* Patch v4: logo auto + 2 assinaturas + excluir empresa + funcao + badges NRs + dedup empresas */
 (function () {
   var SIG_COLAB_KEY = 'cv_assinatura_colaborador';
   var SIG_RESP_KEY = 'cv_assinatura_responsavel';
@@ -304,12 +304,135 @@
     window.enviarLogo.__patched = true;
   }
 
+  function patchRenderSeletorEmpresa() {
+    if (typeof window.renderSeletorEmpresa !== 'function' || window.renderSeletorEmpresa.__patchedDedup) return;
+    var orig = window.renderSeletorEmpresa;
+    window.renderSeletorEmpresa = function () {
+      try {
+        if (window.EMPRESAS_DISPONIVEIS && Array.isArray(window.EMPRESAS_DISPONIVEIS)) {
+          var seen = {};
+          window.EMPRESAS_DISPONIVEIS = window.EMPRESAS_DISPONIVEIS.filter(function (e) {
+            if (!e || e.id == null) return false;
+            var k = String(e.id);
+            if (seen[k]) return false;
+            seen[k] = true;
+            return true;
+          });
+        }
+      } catch (_) {}
+      return orig();
+    };
+    window.renderSeletorEmpresa.__patchedDedup = true;
+    try { window.renderSeletorEmpresa(); } catch (_) {}
+  }
+
+  function patchRefreshDataFuncao() {
+    if (typeof window.refreshData !== 'function' || window.refreshData.__patchedFuncao) return;
+    var orig = window.refreshData;
+    window.refreshData = async function () {
+      await orig();
+      try {
+        var data = await window.apiFetch('/api/data');
+        if (data.colaboradores && window.DATA) {
+          var map = {};
+          data.colaboradores.forEach(function (c) { map[c.id] = c.funcao || ''; });
+          window.DATA.forEach(function (e) { e.funcao = map[e.id] || e.funcao || ''; });
+        }
+        if (data.empresas) {
+          var seen = {};
+          window.EMPRESAS_DISPONIVEIS = data.empresas.filter(function (e) {
+            if (!e || e.id == null || seen[e.id]) return false;
+            seen[e.id] = true;
+            return true;
+          });
+          if (typeof window.renderSeletorEmpresa === 'function') window.renderSeletorEmpresa();
+        }
+      } catch (_) {}
+    };
+    window.refreshData.__patchedFuncao = true;
+  }
+
+  function patchDesenharFrenteBadges() {
+    if (typeof window.desenharFrente !== 'function' || window.desenharFrente.__patchedBadges) return;
+    var prev = window.desenharFrente;
+    window.desenharFrente = async function (e, sigla, fotoURL, logoURL, equip) {
+      var c = await prev(e, sigla, fotoURL, logoURL, equip);
+      try {
+        var ctx = c.getContext('2d');
+        var order = (window.DOC_ORDER && window.DOC_ORDER.length) ? window.DOC_ORDER.slice() : Object.keys((e && e.docs) || {});
+        var itens = [];
+        order.forEach(function (s) {
+          if (!e.docs || !e.docs[s]) return;
+          var st = typeof window.statusFor === 'function' ? window.statusFor(e.docs[s]) : 'valido';
+          itens.push({ sigla: s, st: st });
+        });
+        if (!itens.length) return c;
+
+        var pad = 28;
+        var y = c.height - 52;
+        var x = pad;
+        var gap = 8;
+        var maxX = c.width - pad;
+
+        itens.forEach(function (it) {
+          var label = it.sigla;
+          ctx.font = '700 16px Oswald, sans-serif';
+          var tw = ctx.measureText(label).width;
+          var bw = tw + 28;
+          var bh = 26;
+          if (x + bw > maxX) return;
+
+          var cor = '#3fae5c';
+          if (it.st === 'a_vencer') cor = '#f2b705';
+          if (it.st === 'vencido') cor = '#D3211A';
+          var isAtual = (it.sigla === sigla);
+
+          ctx.fillStyle = isAtual ? cor : '#fff';
+          ctx.strokeStyle = cor;
+          ctx.lineWidth = 2;
+          var r = 8;
+          ctx.beginPath();
+          ctx.moveTo(x + r, y);
+          ctx.lineTo(x + bw - r, y);
+          ctx.quadraticCurveTo(x + bw, y, x + bw, y + r);
+          ctx.lineTo(x + bw, y + bh - r);
+          ctx.quadraticCurveTo(x + bw, y + bh, x + bw - r, y + bh);
+          ctx.lineTo(x + r, y + bh);
+          ctx.quadraticCurveTo(x, y + bh, x, y + bh - r);
+          ctx.lineTo(x, y + r);
+          ctx.quadraticCurveTo(x, y, x + r, y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = cor;
+          ctx.beginPath();
+          ctx.arc(x + 12, y + bh / 2, 5, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#111';
+          if (isAtual && (it.st === 'vencido')) ctx.fillStyle = '#fff';
+          ctx.font = '700 15px Oswald, sans-serif';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(label, x + 22, y + bh / 2 + 1);
+
+          x += bw + gap;
+        });
+      } catch (_) {}
+      return c;
+    };
+    window.desenharFrente.__patchedBadges = true;
+  }
+
   function boot() {
     ensureSigUI();
     patchDesenharVerso();
     patchDesenharFrente();
+    patchDesenharFrenteBadges();
     patchEnviarLogo();
     patchApiFetchFuncao();
+    patchRefreshDataFuncao();
+    patchRenderSeletorEmpresa();
     ensureExcluirEmpresaBtn();
     injectFuncaoFields();
 
@@ -321,6 +444,7 @@
           ensureSigUI();
           patchDesenharVerso();
           patchDesenharFrente();
+          patchDesenharFrenteBadges();
         }
       }).observe(modal, { attributes: true, attributeFilter: ['style'] });
     }
