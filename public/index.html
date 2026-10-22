@@ -964,7 +964,9 @@ async function adicionarTipoDocumento(siglaBruta, nomeBruto){
   const nome = nomeBruto.trim();
   if(!sigla) return {ok:false, msg:'Informe a sigla da NR (ex.: NR-12).'};
   if(!nome) return {ok:false, msg:'Informe uma descrição para essa NR.'};
-  if(DOC_TYPES[sigla]) return {ok:false, msg:`"${sigla}" já existe na lista de documentos.`};
+  const idNova = identidadeNR(sigla);
+  const ja = Object.keys(DOC_TYPES).find(s => s === sigla || identidadeNR(s) === idNova || identidadeNR(DOC_TYPES[s] && DOC_TYPES[s].nome) === idNova);
+  if(ja) return {ok:false, msg:`"${sigla}" já está cadastrada como "${ja}".`};
   try{
     await apiFetch('/api/doctype', {method:'POST', body: JSON.stringify({sigla, nome})});
     await refreshData();
@@ -1787,13 +1789,33 @@ function linhasDeTexto(texto){
     .filter(l => l.cels.some(c => String(c).trim()));
 }
 
+function identidadeNR(texto){
+  const u = String(texto == null ? '' : texto).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+  if(/\bASO\b/.test(u) || /\bNR\s*-?\s*0*7\b/.test(u)) return 'ASO';
+  if(/\bLOTO\b/.test(u) || /NR\s*-?\s*10\s*[\/.\-]\s*12/.test(u)) return 'LOTO';
+  const m = u.match(/NR\s*-?\s*0*(\d{1,2})(?:\s*[\/.\-]\s*0*(\d{1,2}))?/);
+  if(m){
+    let id = 'NR' + m[1];
+    if(m[2]) id += '/' + m[2];
+    if(/\bSUP\b|\bSUPERVIS/.test(u)) id += 'SUP';
+    return id;
+  }
+  return normChave(u);
+}
+
 function mapearColunas(cabecalho){
   const mapa = {nome:-1, notas:-1, docs:{}, ignoradas:[], novas:[]};
   const porChave = {};
+  const registrar = (texto, sigla) => {
+    const k = normChave(texto);
+    const id = identidadeNR(texto);
+    if(k && !porChave[k]) porChave[k] = sigla;
+    if(id && !porChave[id]) porChave[id] = sigla;
+  };
   DOC_ORDER.forEach(s => {
-    porChave[normChave(s)] = s;
+    registrar(s, s);
     const nomeDoc = DOC_TYPES[s] && DOC_TYPES[s].nome;
-    if(nomeDoc && !porChave[normChave(nomeDoc)]) porChave[normChave(nomeDoc)] = s;
+    if(nomeDoc) registrar(nomeDoc, s);
   });
   const SIGLA_HDR = /^[A-Z0-9][A-Z0-9 \-\/.+]{0,19}$/;
   cabecalho.forEach((h, idx) => {
@@ -1801,24 +1823,31 @@ function mapearColunas(cabecalho){
     if(!k) return;
     if(mapa.nome < 0 && NOME_HEADERS.includes(k)){ mapa.nome = idx; return; }
     if(mapa.notas < 0 && NOTA_HEADERS.includes(k)){ mapa.notas = idx; return; }
-    if(k.startsWith('status') || k.endsWith('status')) return; // colunas de status do CSV exportado: ignoradas sem aviso
-    let sigla = porChave[k];
+    if(k.startsWith('status') || k.endsWith('status')) return;
+    let sigla = porChave[k] || porChave[identidadeNR(h)];
     if(!sigla){
       const sem = k.replace(/^(data|vencimento|validade)/, '').replace(/(data|vencimento|venc|validade)$/, '');
       if(sem) sigla = porChave[sem];
     }
-    // NR/treinamento ainda não cadastrado: abre o campo na importação
     if(!sigla){
       let cand = String(h || '').trim()
         .replace(/^(data|vencimento|validade)\s*[:\-]?\s*/i, '')
         .replace(/\s*(data|vencimento|venc|validade)$/i, '')
         .trim().toUpperCase().replace(/\s+/g, ' ');
       if(cand && SIGLA_HDR.test(cand) && !NOME_HEADERS.includes(normChave(cand)) && !NOTA_HEADERS.includes(normChave(cand))){
-        sigla = cand;
-        if(!mapa.novas.includes(cand)) mapa.novas.push(cand);
+        const id = identidadeNR(cand);
+        if(porChave[id] || porChave[normChave(cand)]){
+          sigla = porChave[id] || porChave[normChave(cand)];
+        } else {
+          sigla = cand;
+          if(id) porChave[id] = cand;
+          porChave[normChave(cand)] = cand;
+          if(!mapa.novas.includes(cand)) mapa.novas.push(cand);
+        }
       }
     }
     if(sigla && mapa.docs[sigla] === undefined) mapa.docs[sigla] = idx;
+    else if(sigla) { /* segunda coluna da mesma NR: ignora para não duplicar */ }
     else mapa.ignoradas.push(String(h).trim());
   });
   return mapa.nome >= 0 ? mapa : null;
