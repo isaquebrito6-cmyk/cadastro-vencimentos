@@ -223,8 +223,15 @@ async function handleData(request, env, url) {
     certificados = results;
   } catch (err) { /* a lista de certificados nunca pode impedir o app de abrir */ }
 
+  let fotos = [];
+  try {
+    await garantirTabelaFotos(db);
+    const { results } = await db.prepare('SELECT colaborador_id, atualizado_em FROM colaborador_fotos WHERE empresa_id = ?').bind(empresaId).all();
+    fotos = results;
+  } catch (err) { /* idem: foto nunca impede o app de abrir */ }
+
   return json({
-    certificados,
+    certificados, fotos,
     colaboradores, docTypes: docTypesRes.results, config, historico: historicoRes.results,
     role: session.role, username: session.username,
     empresaAtual: empresaRes.results[0] || null,
@@ -619,7 +626,79 @@ async function apagarCertificadosDaLixeira(db, empresaId, limiteData) {
     const binds = limiteData && !empresaId ? [arg, limiteData] : [arg];
     await db.prepare(`DELETE FROM certificado_partes WHERE certificado_id IN (SELECT id FROM certificados WHERE ${alvo})`).bind(...binds).run();
     await db.prepare(`DELETE FROM certificados WHERE ${alvo}`).bind(...binds).run();
+    await garantirTabelaFotos(db);
+    await db.prepare(`DELETE FROM colaborador_fotos WHERE ${filtroColab}`).bind(arg).run();
   } catch (err) { /* limpeza é best-effort: nunca derruba a operação principal */ }
+}
+
+
+// ---------- Foto do colaborador (para a carteirinha) ----------
+const MAX_FOTO_BYTES = 600 * 1024; // vale também para o logo // o app reduz a foto para ~60–150 KB antes de enviar
+let fotoTabelaPronta = false;
+async function garantirTabelaFotos(db) {
+  if (fotoTabelaPronta) return;
+  await db.prepare(`CREATE TABLE IF NOT EXISTS colaborador_fotos (
+    colaborador_id TEXT PRIMARY KEY, empresa_id INTEGER NOT NULL, tipo TEXT NOT NULL,
+    tamanho INTEGER NOT NULL, dados TEXT NOT NULL, atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
+  )`).run();
+  fotoTabelaPronta = true;
+}
+
+async function handleFoto(request, env, url) {
+  const session = await obterSessao(request, env);
+  if (!session) return json({ error: 'unauthorized' }, 401);
+  const db = env.DB;
+  const resolvido = await resolverEmpresa(session, url, db);
+  if (!resolvido.ok) return json({ error: resolvido.error }, 403);
+  const empresaId = resolvido.empresaId;
+  await garantirTabelaFotos(db);
+  const colaboradorId = url.searchParams.get('colaborador_id') || '';
+  if (!colaboradorId) return json({ error: 'colaborador_obrigatorio' }, 400);
+  // O logo da empresa usa a mesma tabela, com a chave "logo:<empresa>". Só administrador troca ou remove.
+  const ehLogo = colaboradorId.startsWith('logo:');
+  let colab;
+  if (ehLogo) {
+    if (colaboradorId !== 'logo:' + empresaId) return json({ error: 'nao_encontrado' }, 404);
+    if (request.method !== 'GET' && session.role !== 'admin') return json({ error: 'forbidden' }, 403);
+    colab = [{ id: colaboradorId, nome: 'logo da empresa' }];
+  } else {
+    const r = await db.prepare('SELECT id, nome FROM colaboradores WHERE id = ? AND empresa_id = ? AND deletado_em IS NULL').bind(colaboradorId, empresaId).all();
+    colab = r.results;
+    if (colab.length === 0) return json({ error: 'colaborador_nao_encontrado' }, 404);
+  }
+
+  if (request.method === 'GET') {
+    const { results } = await db.prepare('SELECT tipo, dados FROM colaborador_fotos WHERE colaborador_id = ? AND empresa_id = ?').bind(colaboradorId, empresaId).all();
+    if (results.length === 0) return json({ error: 'nao_encontrado' }, 404);
+    const corpo = base64ParaBytes(results[0].dados);
+    return new Response(corpo, { headers: {
+      'content-type': results[0].tipo, 'content-length': String(corpo.length),
+      'x-content-type-options': 'nosniff', 'cache-control': 'private, no-store',
+    } });
+  }
+
+  if (request.method === 'POST') {
+    const declarado = parseInt(request.headers.get('content-length') || '0', 10);
+    if (declarado > MAX_FOTO_BYTES + 1024) return json({ error: 'arquivo_muito_grande', limite: MAX_FOTO_BYTES }, 413);
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    if (bytes.length === 0) return json({ error: 'arquivo_vazio' }, 400);
+    if (bytes.length > MAX_FOTO_BYTES) return json({ error: 'arquivo_muito_grande', limite: MAX_FOTO_BYTES }, 413);
+    const tipo = detectarTipoArquivo(bytes);
+    if (!tipo || tipo === 'application/pdf') return json({ error: 'tipo_nao_permitido' }, 415);
+    await db.prepare(`INSERT INTO colaborador_fotos (colaborador_id, empresa_id, tipo, tamanho, dados, atualizado_em) VALUES (?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(colaborador_id) DO UPDATE SET tipo = excluded.tipo, tamanho = excluded.tamanho, dados = excluded.dados, atualizado_em = excluded.atualizado_em`)
+      .bind(colaboradorId, empresaId, tipo, bytes.length, bytesParaBase64(bytes)).run();
+    await regHist(db, request, session.username, ehLogo ? 'Atualizou o logo da empresa' : `Atualizou a foto de "${colab[0].nome}"`, 'dados', empresaId);
+    const { results } = await db.prepare('SELECT colaborador_id, atualizado_em FROM colaborador_fotos WHERE colaborador_id = ?').bind(colaboradorId).all();
+    return json({ ok: true, foto: results[0] });
+  }
+
+  if (request.method === 'DELETE') {
+    const r = await db.prepare('DELETE FROM colaborador_fotos WHERE colaborador_id = ? AND empresa_id = ?').bind(colaboradorId, empresaId).run();
+    if (r.meta && r.meta.changes) await regHist(db, request, session.username, ehLogo ? 'Removeu o logo da empresa' : `Removeu a foto de "${colab[0].nome}"`, 'dados', empresaId);
+    return json({ ok: true });
+  }
+  return json({ error: 'metodo_nao_permitido' }, 405);
 }
 
 async function handleCertificado(request, env, url) {
@@ -974,6 +1053,7 @@ export default {
       if (p === '/api/colaborador') return await handleColaborador(request, env, url);
       if (p === '/api/colaborador-lote') return await handleColaboradorLote(request, env, url);
       if (p === '/api/certificado') return await handleCertificado(request, env, url);
+      if (p === '/api/foto') return await handleFoto(request, env, url);
       if (p === '/api/doctype') return await handleDoctype(request, env, url);
       if (p === '/api/config') return await handleConfig(request, env, url);
       if (p === '/api/users') return await handleUsers(request, env, url);

@@ -190,6 +190,23 @@
     .edit-grid{grid-template-columns:1fr 1fr;}
     .cert-nome{max-width:100%;}
   }
+
+  .foto-linha{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+  .foto-thumb{width:75px;height:100px;object-fit:cover;border-radius:4px;border:2px solid var(--line);background:#1b1f24;}
+  .foto-vazia{display:flex;align-items:center;justify-content:center;font-size:34px;color:var(--text-dim);}
+  .foto-acoes{display:flex;flex-direction:column;gap:6px;align-items:flex-start;}
+  .foto-btn{cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
+  .card-lista{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+  .card-btn{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border:2px solid var(--line);border-radius:4px;font-size:13px;font-weight:600;color:var(--text);text-decoration:none;background:var(--bg-panel);}
+  .card-btn i{width:12px;height:12px;border-radius:2px;display:inline-block;}
+  .card-btn.off{opacity:.5;font-weight:400;cursor:not-allowed;}
+  #printArea{display:none;}
+  @media print{
+    body.printing-card > *:not(#printArea){display:none !important;}
+    body.printing-card #printArea{display:block;}
+    body.printing-card #printArea img{width:85.6mm;height:54mm;display:block;margin:0 0 6mm 0;page-break-inside:avoid;}
+    @page{margin:10mm;}
+  }
   @media print{ body{background:#fff;color:#000;} .toolbar,.banner,.row-actions{display:none;} }
 </style>
 </head>
@@ -353,6 +370,25 @@
   </div>
 </header>
 
+<div id="cardModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:250;align-items:flex-start;justify-content:center;padding:14px;overflow-y:auto;">
+  <div style="width:100%;max-width:580px;background:var(--bg-panel);border:1px solid var(--line);border-radius:6px;padding:18px;">
+    <h2 style="font-family:'Oswald',sans-serif;font-size:17px;font-weight:600;margin:0 0 4px;">🪪 Carteirinha de treinamento</h2>
+    <div id="cardAviso" style="font-size:12px;color:var(--amber, #f2b705);margin:0 0 10px;min-height:16px;"></div>
+    <div id="cardPreview"></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:4px 0 12px;padding:10px;border:1px dashed var(--line);border-radius:4px;">
+      <label class="btn ghost" style="cursor:pointer;">🏢 Logo da empresa<input type="file" accept="image/*" id="cardLogoInput" hidden></label>
+      <a href="#" class="clear-date" id="cardLogoRemover" style="display:none;">remover logo</a>
+      <span id="cardLogoStatus" style="font-size:11px;color:var(--text-dim);"></span>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+      <button class="btn primary" id="cardImprimir">🖨 Imprimir</button>
+      <button class="btn ghost" id="cardBaixarFrente">⬇ Frente (PNG)</button>
+      <button class="btn ghost" id="cardBaixarVerso">⬇ Verso (PNG)</button>
+      <button class="btn ghost" id="cardFechar" style="margin-left:auto;">Fechar</button>
+    </div>
+    <div style="font-size:11px;color:var(--text-dim);margin-top:10px;line-height:1.5;">Tamanho de cartão (85,6 × 54 mm). Ao imprimir, use papel adesivo ou PVC e imprima frente e verso. A carteirinha só é gerada enquanto o treinamento estiver dentro da validade.</div>
+  </div>
+</div>
 <div id="importModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:240;align-items:center;justify-content:center;padding:14px;">
   <div id="importCard" style="width:100%;max-width:720px;max-height:94vh;overflow-y:auto;background:var(--bg-panel);border:1px solid var(--line);border-radius:6px;padding:22px 22px 18px;">
     <h2 style="font-family:'Oswald',sans-serif;font-size:17px;font-weight:600;margin:0 0 6px;">⬆ Importar colaboradores em lote</h2>
@@ -834,6 +870,7 @@ async function loadInitial(){
   DOC_TYPES = JSON.parse(JSON.stringify(BUILTIN_DOC_TYPES));
   const data = await apiFetch('/api/data');
   CERTS = data.certificados || [];
+  FOTOS = {}; (data.fotos || []).forEach(f => { FOTOS[f.colaborador_id] = f.atualizado_em; });
   DATA = data.colaboradores.map(e => ({
     id: e.id, nome: e.nome, notas: e.notas || [], docs: e.docs || {}
   }));
@@ -861,6 +898,7 @@ async function loadInitial(){
 async function refreshData(){
   const data = await apiFetch('/api/data');
   CERTS = data.certificados || [];
+  FOTOS = {}; (data.fotos || []).forEach(f => { FOTOS[f.colaborador_id] = f.atualizado_em; });
   DATA = data.colaboradores.map(e => ({ id: e.id, nome: e.nome, notas: e.notas || [], docs: e.docs || {} }));
   DOC_TYPES = {};
   data.docTypes.forEach(dt => { DOC_TYPES[dt.sigla] = {cor: dt.cor, nome: dt.nome, desc: dt.descricao}; });
@@ -1332,6 +1370,7 @@ function renderTable(){
   }
 
   tbody.innerHTML = rows.map(e => rowHTML(e, docF)).join('');
+  hidratarFotos();
 
   tbody.querySelectorAll('[data-edit]').forEach(btn => btn.addEventListener('click', () => {
     openEditId = openEditId === btn.dataset.edit ? null : btn.dataset.edit;
@@ -1458,6 +1497,7 @@ function rowHTML(e, docF){
           <label>Observação (ex.: Afastado)</label>
           <input type="text" id="fld-notas-${e.id}" value="${escapeHTML((e.notas||[]).join(', '))}" placeholder="opcional">
         </div>
+        ${fotoBoxHTML(e)}
         ${DOC_ORDER.map(sigla => `
         <div class="field">
           <label>${escapeHTML(sigla)}</label>
@@ -2036,6 +2076,409 @@ async function confirmarImport(){
   }finally{ IMPORTANDO = false; }
 }
 
+// ================= Foto + carteirinha de treinamento =================
+let FOTOS = {};      // colaborador_id -> atualizado_em
+let FOTO_URLS = {};  // colaborador_id -> {v, url}  (blob já baixado)
+
+// Cores de segurança (NR-26). Texto escuro nas claras, branco nas escuras.
+const COR_SEG = {
+  laranja:  {hex:'#F26B1D', texto:'#111', nome:'Laranja', uso:'máquinas e equipamentos'},
+  azul:     {hex:'#0A5BB5', texto:'#fff', nome:'Azul', uso:'ação obrigatória (uso de EPI)'},
+  amarelo:  {hex:'#F5B800', texto:'#111', nome:'Amarelo', uso:'atenção / risco'},
+  vermelho: {hex:'#D3211A', texto:'#fff', nome:'Vermelho', uso:'proteção, bloqueio e combate a incêndio'},
+  verde:    {hex:'#1E9E4A', texto:'#fff', nome:'Verde', uso:'segurança / saúde'},
+};
+function corSegurancaDe(sigla){
+  const t = (String(sigla) + ' ' + ((DOC_TYPES[sigla] && DOC_TYPES[sigla].nome) || '')).toUpperCase();
+  if(/ASO|SAUDE|SAÚDE/.test(t)) return COR_SEG.verde;
+  if(/(11|18)\b|EMPILH|PLATAFORMA|REBO|EMP\b|OPERADOR|GUINDASTE|MUNCK|CARREGADEIRA|RETRO/.test(t)) return COR_SEG.laranja;
+  if(/35|ALTURA/.test(t)) return COR_SEG.azul;
+  if(/33|CONFINAD/.test(t)) return COR_SEG.amarelo;
+  if(/20|INFLAM|COMBUST|LOTO|BLOQUEIO|\b10\b|\b12\b/.test(t)) return COR_SEG.vermelho;
+  return COR_SEG.amarelo;
+}
+function carteiraPermitida(sigla){ return sigla !== 'ASO'; }
+function titularCarteira(sigla){
+  return /(11|18)\b|EMPILH|PLATAFORMA|REBO|EMP\b|OPERADOR/.test((sigla + ' ' + ((DOC_TYPES[sigla]||{}).nome||'')).toUpperCase())
+    ? 'CARTEIRA DE OPERADOR' : 'CARTEIRA DE TREINAMENTO';
+}
+
+function fotoBoxHTML(e){
+  const tem = !!FOTOS[e.id];
+  const cache = FOTO_URLS[e.id];
+  const src = tem && cache && cache.v === FOTOS[e.id] ? cache.url : '';
+  const img = tem
+    ? `<img class="foto-thumb" data-foto-img="${escapeHTML(e.id)}" ${src ? `src="${src}"` : ''} alt="Foto de ${escapeHTML(e.nome)}">`
+    : `<div class="foto-thumb foto-vazia" aria-hidden="true">👤</div>`;
+  const cartas = DOC_ORDER.filter(carteiraPermitida).filter(s => e.docs[s]).map(s => {
+    const st = statusFor(e.docs[s]);
+    if(st === 'vencido') return `<span class="card-btn off" title="Treinamento vencido: renove para gerar a carteirinha">🪪 ${escapeHTML(s)} · vencido</span>`;
+    const c = corSegurancaDe(s);
+    return `<a href="#" class="card-btn" data-card-colab="${escapeHTML(e.id)}" data-card-sigla="${escapeHTML(s)}" style="border-color:${c.hex};"><i style="background:${c.hex}"></i>🪪 ${escapeHTML(s)}</a>`;
+  }).join('');
+  return `<div class="field wide foto-box" data-foto-colab="${escapeHTML(e.id)}">
+    <label>Foto e carteirinha</label>
+    <div class="foto-linha">
+      ${img}
+      <div class="foto-acoes">
+        <label class="btn ghost foto-btn">📷 ${tem ? 'Trocar foto' : 'Enviar foto'}<input type="file" accept="image/*" data-foto-input hidden></label>
+        ${tem ? `<a href="#" class="clear-date" data-foto-del="${escapeHTML(e.id)}">remover foto</a>` : ''}
+        <div class="foto-status" style="font-size:11px;color:var(--text-dim);"></div>
+      </div>
+    </div>
+    <div class="card-lista">${cartas || '<span style="font-size:12px;color:var(--text-dim)">A carteirinha aparece aqui assim que o colaborador tiver um treinamento (NR) com data válida.</span>'}</div>
+  </div>`;
+}
+
+async function baixarFotoBlob(colabId){
+  let caminho = '/api/foto?colaborador_id=' + encodeURIComponent(colabId);
+  if(EMPRESA_ATUAL && EMPRESA_ATUAL.id) caminho += '&empresa_id=' + EMPRESA_ATUAL.id;
+  const res = await fetch(caminho, {headers: {'Authorization': 'Bearer ' + AUTH_TOKEN}});
+  if(res.status === 401){ encerrarSessao(); throw new Error('sessao_expirada'); }
+  if(!res.ok) throw new Error('sem_foto');
+  return await res.blob();
+}
+async function obterFotoURL(colabId){
+  const v = FOTOS[colabId];
+  if(!v) return null;
+  const c = FOTO_URLS[colabId];
+  if(c && c.v === v) return c.url;
+  const blob = await baixarFotoBlob(colabId);
+  if(c) URL.revokeObjectURL(c.url);
+  const url = URL.createObjectURL(blob);
+  FOTO_URLS[colabId] = {v, url};
+  return url;
+}
+function hidratarFotos(){
+  document.querySelectorAll('img[data-foto-img]').forEach(async img => {
+    if(img.getAttribute('src')) return;
+    try{ const u = await obterFotoURL(img.dataset.fotoImg); if(u) img.src = u; }catch(err){ /* sem foto: fica o espaço vazio */ }
+  });
+}
+
+// Reduz a foto no aparelho (3:4, 480x640, JPEG) antes de enviar: leve e padronizada para a carteirinha.
+function prepararFoto(file){
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const W = 480, H = 640, c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+      const alvo = W / H, orig = img.width / img.height;
+      let sw = img.width, sh = img.height, sx = 0, sy = 0;
+      if(orig > alvo){ sw = img.height * alvo; sx = (img.width - sw) / 2; }
+      else { sh = img.width / alvo; sy = (img.height - sh) * 0.2; }   // rosto costuma ficar na parte de cima
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, W, H);
+      URL.revokeObjectURL(url);
+      c.toBlob(b => b ? resolve(b) : reject(new Error('imagem_invalida')), 'image/jpeg', 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('imagem_invalida')); };
+    img.src = url;
+  });
+}
+let ENVIANDO_FOTO = false;
+async function enviarFoto(colabId, file, box){
+  if(ENVIANDO_FOTO) return;
+  ENVIANDO_FOTO = true;
+  const st = box && box.querySelector('.foto-status');
+  try{
+    if(st) st.textContent = 'Enviando foto…';
+    const blob = await prepararFoto(file);
+    let q = '/api/foto?colaborador_id=' + encodeURIComponent(colabId);
+    const r = await apiFetch(q, {method:'POST', body: blob, headers: {'Content-Type': 'image/jpeg'}});
+    FOTOS[colabId] = r.foto.atualizado_em;
+    delete FOTO_URLS[colabId];
+    renderTable();
+    showToast('Foto salva.');
+  }catch(err){
+    if(st) st.textContent = '';
+    showToast('Não foi possível enviar a foto: ' + (err.message === 'imagem_invalida' ? 'arquivo não é uma imagem.' : err.message), 'error');
+  }finally{ ENVIANDO_FOTO = false; }
+}
+async function removerFoto(colabId){
+  if(!confirm('Remover a foto deste colaborador?')) return;
+  try{
+    await apiFetch('/api/foto?colaborador_id=' + encodeURIComponent(colabId), {method:'DELETE'});
+    delete FOTOS[colabId];
+    if(FOTO_URLS[colabId]){ URL.revokeObjectURL(FOTO_URLS[colabId].url); delete FOTO_URLS[colabId]; }
+    renderTable();
+    showToast('Foto removida.');
+  }catch(err){ showToast('Não foi possível remover: ' + err.message, 'error'); }
+}
+
+// ---- desenho da carteirinha (canvas 1011x638 = 85,6 x 54 mm a 300 dpi) ----
+const CARD_W = 1011, CARD_H = 638;
+function cardRound(ctx, x, y, w, h, r){
+  ctx.beginPath(); ctx.moveTo(x+r, y); ctx.arcTo(x+w, y, x+w, y+h, r); ctx.arcTo(x+w, y+h, x, y+h, r);
+  ctx.arcTo(x, y+h, x, y, r); ctx.arcTo(x, y, x+w, y, r); ctx.closePath();
+}
+function cardZebra(ctx, x, y, w, h){
+  ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  ctx.fillStyle = '#F5B800'; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = '#111';
+  for(let i = -h; i < w + h; i += 44){
+    ctx.beginPath(); ctx.moveTo(x+i, y+h); ctx.lineTo(x+i+22, y+h); ctx.lineTo(x+i+22+h, y); ctx.lineTo(x+i+h, y); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+function cardQuebra(ctx, texto, maxW, maxLinhas){
+  const palavras = String(texto).split(' '); const linhas = []; let atual = '';
+  for(const p of palavras){
+    const t = atual ? atual + ' ' + p : p;
+    if(ctx.measureText(t).width > maxW && atual){ linhas.push(atual); atual = p; } else atual = t;
+  }
+  if(atual) linhas.push(atual);
+  if(linhas.length > maxLinhas){ const resto = linhas.slice(maxLinhas - 1).join(' '); linhas.length = maxLinhas - 1; linhas.push(resto); }
+  return linhas;
+}
+function cardCanvas(){ const c = document.createElement('canvas'); c.width = CARD_W; c.height = CARD_H; return c; }
+function cardBase(ctx){ ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, CARD_W, CARD_H); }
+const FONTE_CARD = "'Oswald','Arial Narrow',Arial,sans-serif";
+const FONTE_TXT = "'Inter',Arial,sans-serif";
+function nomeEmpresaCarteira(){ return String((EMPRESA_ATUAL && EMPRESA_ATUAL.nome) || CFG.empresa || '').toUpperCase(); }
+
+function carregarImg(url){
+  return new Promise(res => { if(!url) return res(null); const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = url; });
+}
+function aptidaoDe(e, sigla){
+  const trein = statusFor(e.docs[sigla]);
+  const aso = statusFor(e.docs['ASO']);
+  if(trein === 'vencido' || trein === 'sem_registro') return {apto:false, motivo: 'TREINAMENTO ' + (trein === 'vencido' ? 'VENCIDO' : 'NÃO INFORMADO')};
+  if(aso === 'sem_registro') return {apto:false, motivo:'ASO NÃO INFORMADO'};
+  if(aso === 'vencido') return {apto:false, motivo:'ASO VENCIDO'};
+  return {apto:true, motivo:''};
+}
+const COR_STATUS = {valido:'#1E9E4A', a_vencer:'#F5B800', vencido:'#D3211A', sem_registro:'#9AA3AB'};
+function cardLogo(ctx, logoImg, x, y, w, h, empresa){
+  ctx.fillStyle = '#fff'; cardRound(ctx, x, y, w, h, 14); ctx.fill();
+  if(logoImg){
+    const r = Math.min((w-16)/logoImg.width, (h-16)/logoImg.height);
+    const lw = logoImg.width*r, lh = logoImg.height*r;
+    ctx.drawImage(logoImg, x+(w-lw)/2, y+(h-lh)/2, lw, lh);
+  }else{
+    const ini = empresa.split(/\s+/).filter(p => p.length > 2).slice(0,2).map(p => p[0]).join('') || empresa.slice(0,1);
+    ctx.fillStyle = '#111'; ctx.font = `700 ${Math.round(h*0.42)}px ${FONTE_CARD}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(ini, x+w/2, y+h/2+2); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  }
+}
+function cardAjustaFonte(ctx, texto, peso, tamMax, tamMin, maxW, familia){
+  let t = tamMax;
+  for(; t > tamMin; t -= 2){ ctx.font = `${peso} ${t}px ${familia}`; if(ctx.measureText(texto).width <= maxW) break; }
+  ctx.font = `${peso} ${t}px ${familia}`;
+  return t;
+}
+
+async function desenharFrente(e, sigla, fotoURL, logoURL){
+  try{ await document.fonts.load("700 40px 'Oswald'"); await document.fonts.load("400 22px 'Inter'"); }catch(_){}
+  const cor = corSegurancaDe(sigla), emp = nomeEmpresaCarteira();
+  const apt = aptidaoDe(e, sigla);
+  const fotoImg = await carregarImg(fotoURL), logoImg = await carregarImg(logoURL);
+  const c = cardCanvas(), ctx = c.getContext('2d');
+  cardBase(ctx);
+  ctx.fillStyle = cor.hex; ctx.fillRect(0, 0, CARD_W, 150);
+  cardZebra(ctx, 0, 150, CARD_W, 16);
+  cardLogo(ctx, logoImg, 28, 20, 110, 110, emp);
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = `700 54px ${FONTE_CARD}`;
+  const wSig = Math.min(ctx.measureText(sigla).width + 44, 300);
+  const xSig = CARD_W - 28 - wSig;
+  ctx.fillStyle = '#fff'; cardRound(ctx, xSig, 42, wSig, 76, 12); ctx.fill();
+  ctx.fillStyle = '#111'; cardAjustaFonte(ctx, sigla, 700, 54, 28, wSig - 24, FONTE_CARD);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(sigla, xSig + wSig/2, 82); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  const xT = 158, wT = xSig - xT - 20;
+  ctx.fillStyle = cor.texto;
+  const sub = emp + '  ·  SEGURANÇA DO TRABALHO';
+  cardAjustaFonte(ctx, sub, 500, 24, 14, wT, FONTE_CARD); ctx.fillText(sub, xT, 56);
+  cardAjustaFonte(ctx, titularCarteira(sigla), 700, 54, 28, wT, FONTE_CARD); ctx.fillText(titularCarteira(sigla), xT, 114);
+  const fx = 40, fy = 196, fw = 240, fh = 320;
+  ctx.fillStyle = '#E9ECEF'; ctx.fillRect(fx, fy, fw, fh);
+  if(fotoImg){ ctx.drawImage(fotoImg, fx, fy, fw, fh); }
+  else{
+    ctx.fillStyle = '#B8C0C8'; ctx.beginPath(); ctx.arc(fx+fw/2, fy+120, 56, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(fx+fw/2, fy+260, 96, 80, 0, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = '#6B747C'; ctx.font = `500 20px ${FONTE_TXT}`; ctx.textAlign = 'center'; ctx.fillText('SEM FOTO', fx+fw/2, fy+fh-14); ctx.textAlign = 'left';
+  }
+  ctx.lineWidth = 8; ctx.strokeStyle = cor.hex; ctx.strokeRect(fx-4, fy-4, fw+8, fh+8);
+  const x = 320, maxW = CARD_W - x - 40;
+  ctx.fillStyle = '#6B747C'; ctx.font = `600 19px ${FONTE_TXT}`; ctx.fillText('NOME', x, 208);
+  ctx.fillStyle = '#111'; ctx.font = `700 40px ${FONTE_CARD}`;
+  const linhas = cardQuebra(ctx, e.nome.toUpperCase(), maxW, 2);
+  linhas.forEach((l, i) => ctx.fillText(l, x, 250 + i*44));
+  let y = 250 + (linhas.length - 1) * 44 + 42;
+  ctx.fillStyle = '#6B747C'; ctx.font = `600 19px ${FONTE_TXT}`; ctx.fillText('TREINAMENTO', x, y);
+  ctx.fillStyle = '#111'; ctx.font = `600 28px ${FONTE_CARD}`;
+  const nomeTrein = (DOC_TYPES[sigla] && DOC_TYPES[sigla].nome) || sigla;
+  const l2 = cardQuebra(ctx, nomeTrein && nomeTrein !== sigla ? nomeTrein : sigla, maxW, 1);
+  ctx.fillText(l2[0], x, y + 34);
+  y += 34 + 40;
+  const colW = maxW / 2;
+  [['VALIDADE ' + sigla, e.docs[sigla]], ['VALIDADE ASO', e.docs['ASO']]].forEach(([rot, data], i) => {
+    const cx = x + i*colW;
+    ctx.fillStyle = '#6B747C'; ctx.font = `600 19px ${FONTE_TXT}`;
+    const rotAj = cardQuebra(ctx, rot, colW - 10, 1)[0]; ctx.fillText(rotAj, cx, y);
+    const st = statusFor(data);
+    ctx.fillStyle = st === 'vencido' ? COR_STATUS.vencido : '#111';
+    cardAjustaFonte(ctx, data ? fmtDate(data) : 'NÃO INFORMADO', 700, 46, 24, colW - 12, FONTE_CARD);
+    ctx.fillText(data ? fmtDate(data) : 'NÃO INFORMADO', cx, y + 46);
+  });
+  const by = 452, bh = 64;
+  ctx.fillStyle = apt.apto ? COR_STATUS.valido : COR_STATUS.vencido; cardRound(ctx, x, by, maxW, bh, 12); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const txtApto = apt.apto ? '✔  APTO PARA ATIVIDADE' : '✖  NÃO APTO — ' + apt.motivo;
+  cardAjustaFonte(ctx, txtApto, 700, 36, 20, maxW - 30, FONTE_CARD);
+  ctx.fillText(txtApto, x + maxW/2, by + bh/2 + 2);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = cor.hex; ctx.fillRect(40, 556, 34, 34);
+  ctx.fillStyle = '#333'; ctx.font = `500 21px ${FONTE_TXT}`;
+  ctx.fillText(`Cor de segurança (NR-26): ${cor.nome} — ${cor.uso}`, 88, 580);
+  cardZebra(ctx, 0, CARD_H - 14, CARD_W, 14);
+  return c;
+}
+
+async function desenharVerso(e, sigla, logoURL){
+  try{ await document.fonts.load("700 40px 'Oswald'"); await document.fonts.load("400 22px 'Inter'"); }catch(_){}
+  const cor = corSegurancaDe(sigla), emp = nomeEmpresaCarteira();
+  const logoImg = await carregarImg(logoURL);
+  const c = cardCanvas(), ctx = c.getContext('2d');
+  cardBase(ctx);
+  ctx.fillStyle = cor.hex; ctx.fillRect(0, 0, CARD_W, 96);
+  cardZebra(ctx, 0, 96, CARD_W, 12);
+  cardLogo(ctx, logoImg, 24, 12, 72, 72, emp);
+  ctx.fillStyle = cor.texto; ctx.textBaseline = 'alphabetic';
+  cardAjustaFonte(ctx, emp, 700, 38, 20, CARD_W - 140 - 28, FONTE_CARD); ctx.fillText(emp, 116, 62);
+  ctx.fillStyle = '#111'; ctx.font = `700 26px ${FONTE_CARD}`; ctx.fillText('VENCIMENTOS', 40, 150);
+  const itens = ['ASO', ...DOC_ORDER.filter(s => s !== 'ASO')].filter(s => s === 'ASO' || e.docs[s]);
+  const colunas = 2, linhasPorCol = Math.max(5, Math.ceil(itens.length / colunas));
+  const rowH = Math.min(40, Math.floor(260 / linhasPorCol));
+  const colW = (CARD_W - 80) / colunas;
+  const tam = rowH > 34 ? 24 : 21;
+  itens.forEach((s, i) => {
+    const col = Math.floor(i / linhasPorCol), lin = i % linhasPorCol;
+    const x = 40 + col*colW, y = 176 + lin*rowH;
+    const st = statusFor(e.docs[s]);
+    ctx.fillStyle = COR_STATUS[st]; ctx.beginPath(); ctx.arc(x+10, y+rowH/2-6, 9, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#111';
+    cardAjustaFonte(ctx, s, 600, tam, 14, colW - 190, FONTE_CARD);
+    ctx.fillText(s, x+30, y+rowH/2+2);
+    ctx.textAlign = 'right'; ctx.font = `600 ${tam}px ${FONTE_TXT}`;
+    ctx.fillStyle = st === 'vencido' ? COR_STATUS.vencido : '#111';
+    ctx.fillText(e.docs[s] ? fmtDate(e.docs[s]) : 'não informado', x+colW-24, y+rowH/2+2); ctx.textAlign = 'left';
+  });
+  const ly = 176 + linhasPorCol*rowH + 18;
+  ctx.font = `500 17px ${FONTE_TXT}`; let lx = 40;
+  [['valido','Em dia'],['a_vencer','A vencer'],['vencido','Vencido']].forEach(([k, t]) => {
+    ctx.fillStyle = COR_STATUS[k]; ctx.beginPath(); ctx.arc(lx+7, ly-5, 7, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#444'; ctx.fillText(t, lx+20, ly); lx += 20 + ctx.measureText(t).width + 26;
+  });
+  ctx.fillStyle = '#444'; ctx.font = `400 19px ${FONTE_TXT}`;
+  ctx.fillText('Portar durante a atividade. Pessoal e intransferível. Válida só com ASO e treinamento em dia.', 40, ly + 34);
+  ctx.strokeStyle = '#111'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(40, 548); ctx.lineTo(470, 548); ctx.moveTo(540, 548); ctx.lineTo(CARD_W - 40, 548); ctx.stroke();
+  ctx.fillStyle = '#444'; ctx.font = `500 17px ${FONTE_TXT}`;
+  ctx.fillText('Assinatura do colaborador', 40, 570); ctx.fillText('Responsável / Segurança do Trabalho', 540, 570);
+  ctx.fillStyle = '#6B747C'; ctx.font = `500 15px ${FONTE_TXT}`;
+  ctx.fillText(`Emitida em ${fmtDate(hojeISO())}  ·  Cód. ${String(e.id).slice(-6).toUpperCase()}`, 40, 604);
+  cardZebra(ctx, 0, CARD_H - 14, CARD_W, 14);
+  return c;
+}
+
+function chaveLogo(){ return 'logo:' + (EMPRESA_ATUAL && EMPRESA_ATUAL.id); }
+function atualizarLogoStatus(tem){
+  const el = document.getElementById('cardLogoStatus');
+  if(el) el.textContent = tem ? 'Logo da empresa cadastrado.' : 'Sem logo da empresa — a carteirinha usa as iniciais.';
+  const rm = document.getElementById('cardLogoRemover'); if(rm) rm.style.display = tem ? '' : 'none';
+}
+function prepararLogo(file){
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const r = Math.min(1, 400 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.round(img.width*r); c.height = Math.round(img.height*r);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      c.toBlob(b => {
+        if(b && b.size <= 500*1024) return resolve(b);
+        const c2 = document.createElement('canvas'); c2.width = c.width; c2.height = c.height;
+        const x2 = c2.getContext('2d'); x2.fillStyle = '#fff'; x2.fillRect(0,0,c2.width,c2.height); x2.drawImage(c, 0, 0);
+        c2.toBlob(b2 => b2 ? resolve(b2) : reject(new Error('imagem_invalida')), 'image/jpeg', 0.85);
+      }, 'image/png');
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('imagem_invalida')); };
+    img.src = url;
+  });
+}
+async function enviarLogo(file){
+  const chave = chaveLogo();
+  try{
+    const blob = await prepararLogo(file);
+    const r = await apiFetch('/api/foto?colaborador_id=' + encodeURIComponent(chave), {method:'POST', body: blob, headers: {'Content-Type': blob.type}});
+    FOTOS[chave] = r.foto.atualizado_em; delete FOTO_URLS[chave];
+    showToast('Logo salvo.');
+    if(CARTEIRA_ATUAL) abrirCarteira(CARTEIRA_ATUAL.colabId, CARTEIRA_ATUAL.sigla);
+  }catch(err){
+    showToast('Não foi possível salvar o logo: ' + (err.message === 'forbidden' ? 'só o administrador pode trocar o logo.' : err.message), 'error');
+  }
+}
+async function removerLogo(){
+  const chave = chaveLogo();
+  if(!confirm('Remover o logo da empresa?')) return;
+  try{
+    await apiFetch('/api/foto?colaborador_id=' + encodeURIComponent(chave), {method:'DELETE'});
+    delete FOTOS[chave]; delete FOTO_URLS[chave];
+    if(CARTEIRA_ATUAL) abrirCarteira(CARTEIRA_ATUAL.colabId, CARTEIRA_ATUAL.sigla);
+  }catch(err){ showToast('Não foi possível remover: ' + (err.message === 'forbidden' ? 'só o administrador.' : err.message), 'error'); }
+}
+
+let CARTEIRA_ATUAL = null;
+async function abrirCarteira(colabId, sigla){
+  const e = DATA.find(x => x.id === colabId);
+  if(!e || !e.docs[sigla]) return;
+  if(statusFor(e.docs[sigla]) === 'vencido'){ showToast('Treinamento vencido: renove a data para gerar a carteirinha.', 'error'); return; }
+  const modal = document.getElementById('cardModal');
+  modal.style.display = 'flex';
+  const aviso = document.getElementById('cardAviso');
+  aviso.textContent = 'Gerando…';
+  try{
+    let fotoURL = null;
+    try{ fotoURL = await obterFotoURL(colabId); }catch(_){}
+    let logoURL = null;
+    try{ logoURL = await obterFotoURL(chaveLogo()); }catch(_){}
+    const f = await desenharFrente(e, sigla, fotoURL, logoURL), v = await desenharVerso(e, sigla, logoURL);
+    CARTEIRA_ATUAL = {frente: f, verso: v, nome: e.nome, sigla, colabId};
+    atualizarLogoStatus(!!logoURL);
+    const box = document.getElementById('cardPreview');
+    box.innerHTML = '';
+    [f, v].forEach(cv => { cv.style.cssText = 'width:100%;max-width:520px;height:auto;border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,.45);display:block;margin:0 auto 12px;'; box.appendChild(cv); });
+    aviso.textContent = fotoURL ? '' : '⚠ Este colaborador ainda não tem foto. Feche, envie a foto na ficha e gere de novo.';
+  }catch(err){
+    aviso.textContent = 'Não foi possível gerar a carteirinha: ' + err.message;
+  }
+}
+function nomeArquivoCarteira(lado){
+  const base = (CARTEIRA_ATUAL.nome + '-' + CARTEIRA_ATUAL.sigla).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_|_$/g, '');
+  return `carteirinha_${base}_${lado}.png`;
+}
+function baixarCarteira(lado){
+  if(!CARTEIRA_ATUAL) return;
+  CARTEIRA_ATUAL[lado].toBlob(b => {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = nomeArquivoCarteira(lado);
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }, 'image/png');
+}
+function imprimirCarteira(){
+  if(!CARTEIRA_ATUAL) return;
+  let area = document.getElementById('printArea');
+  if(!area){ area = document.createElement('div'); area.id = 'printArea'; document.body.appendChild(area); }
+  area.innerHTML = '';
+  [CARTEIRA_ATUAL.frente, CARTEIRA_ATUAL.verso].forEach(cv => { const im = new Image(); im.src = cv.toDataURL('image/png'); area.appendChild(im); });
+  document.body.classList.add('printing-card');
+  const fim = () => { document.body.classList.remove('printing-card'); window.removeEventListener('afterprint', fim); };
+  window.addEventListener('afterprint', fim);
+  setTimeout(() => window.print(), 150);
+}
+
 let DESFAZENDO_IMPORT = false;
 async function desfazerImport(){
   if(!ULTIMA_IMPORTACAO || DESFAZENDO_IMPORT) return;
@@ -2535,6 +2978,27 @@ async function iniciarApp(){
     else if(a.dataset.certBaixar) baixarCertificado(a.dataset.certBaixar);
     else if(a.dataset.certDel) excluirCertificado(a.dataset.certDel);
   });
+  tbodyCert.addEventListener('click', ev => {
+    const a = ev.target.closest('[data-card-sigla],[data-foto-del]');
+    if(!a) return;
+    ev.preventDefault();
+    if(a.dataset.cardSigla) abrirCarteira(a.dataset.cardColab, a.dataset.cardSigla);
+    else if(a.dataset.fotoDel) removerFoto(a.dataset.fotoDel);
+  });
+  tbodyCert.addEventListener('change', ev => {
+    const inp = ev.target.closest('input[data-foto-input]');
+    if(!inp) return;
+    const box = inp.closest('[data-foto-colab]');
+    const arq = inp.files && inp.files[0];
+    inp.value = '';
+    if(box && arq) enviarFoto(box.dataset.fotoColab, arq, box);
+  });
+  document.getElementById('cardFechar').addEventListener('click', () => { document.getElementById('cardModal').style.display = 'none'; });
+  document.getElementById('cardLogoInput').addEventListener('change', ev => { const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; if(f) enviarLogo(f); });
+  document.getElementById('cardLogoRemover').addEventListener('click', ev => { ev.preventDefault(); removerLogo(); });
+  document.getElementById('cardImprimir').addEventListener('click', imprimirCarteira);
+  document.getElementById('cardBaixarFrente').addEventListener('click', () => baixarCarteira('frente'));
+  document.getElementById('cardBaixarVerso').addEventListener('click', () => baixarCarteira('verso'));
   tbodyCert.addEventListener('change', ev => {
     const input = ev.target.closest('input[data-cert-input]');
     if(!input) return;
