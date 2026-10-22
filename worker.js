@@ -1,7 +1,7 @@
 import { hashPassword, verifyPassword, makeSessionToken, getSession, json, generateRecoveryCode, usernameValido } from './lib/auth.js';
 
-const SIGLA_VALIDA = /^[A-Z0-9][A-Z0-9 \-\/.+]{0,19}$/;
-const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+const SIGLA_VALIDA = /^[A-Z0-9][A-Z0-9 \\-\\/.+]{0,19}$/;
+const DATA_ISO = /^\\d{4}-\\d{2}-\\d{2}$/;
 const HASH_FALSO = { salt: '00000000000000000000000000000000', hash: '0'.repeat(64) };
 
 const PALETA = ['#f2b705', '#3fae5c', '#f2954a', '#e05a8a', '#8a6de0', '#4fa3e3', '#c94f4f', '#4fc9a8', '#c9a24f', '#7a8fd6'];
@@ -19,6 +19,7 @@ const BUILTIN_DOC_TYPES = [
 const MAX_TENTATIVAS = 5;
 const BLOQUEIO_MINUTOS = 15;
 const DIAS_RETENCAO_LIXEIRA = 30;
+const MAX_FOTO_BYTES = 600 * 1024;
 
 function clienteInfo(request) {
   const ip = request.headers.get('CF-Connecting-IP') || 'desconhecido';
@@ -48,6 +49,27 @@ async function regHist(db, request, username, acao, tipo = 'dados', empresaId = 
 
 function dataLimiteRetencao() {
   return new Date(Date.now() - DIAS_RETENCAO_LIXEIRA * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function base64ParaBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function bytesParaBase64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+function detectarTipoArquivo(b) {
+  if (b.length >= 4 && b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return 'application/pdf';
+  if (b.length >= 3 && b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return 'image/jpeg';
+  if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return 'image/png';
+  if (b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
+  return null;
 }
 
 async function apagarCertificadosDaLixeira(db, empresaId, limiteData) {
@@ -122,6 +144,59 @@ async function garantirTabelaFotos(db) {
     tamanho INTEGER NOT NULL, dados TEXT NOT NULL, atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
   )`).run();
   fotoTabelaPronta = true;
+}
+
+async function handleFoto(request, env, url) {
+  const session = await obterSessao(request, env);
+  if (!session) return json({ error: 'unauthorized' }, 401);
+  const db = env.DB;
+  const resolvido = await resolverEmpresa(session, url, db);
+  if (!resolvido.ok) return json({ error: resolvido.error }, 403);
+  const empresaId = resolvido.empresaId;
+  await garantirTabelaFotos(db);
+  const colaboradorId = url.searchParams.get('colaborador_id') || '';
+  if (!colaboradorId) return json({ error: 'colaborador_obrigatorio' }, 400);
+  const ehLogo = colaboradorId.startsWith('logo:');
+  let colab;
+  if (ehLogo) {
+    if (colaboradorId !== 'logo:' + empresaId) return json({ error: 'nao_encontrado' }, 404);
+    if (request.method !== 'GET' && session.role !== 'admin') return json({ error: 'forbidden' }, 403);
+    colab = [{ id: colaboradorId, nome: 'logo da empresa' }];
+  } else {
+    const r = await db.prepare('SELECT id, nome FROM colaboradores WHERE id = ? AND empresa_id = ? AND deletado_em IS NULL').bind(colaboradorId, empresaId).all();
+    colab = r.results;
+    if (colab.length === 0) return json({ error: 'colaborador_nao_encontrado' }, 404);
+  }
+  if (request.method === 'GET') {
+    const { results } = await db.prepare('SELECT tipo, dados FROM colaborador_fotos WHERE colaborador_id = ? AND empresa_id = ?').bind(colaboradorId, empresaId).all();
+    if (results.length === 0) return json({ error: 'nao_encontrado' }, 404);
+    const corpo = base64ParaBytes(results[0].dados);
+    return new Response(corpo, { headers: {
+      'content-type': results[0].tipo, 'content-length': String(corpo.length),
+      'x-content-type-options': 'nosniff', 'cache-control': 'private, no-store',
+    } });
+  }
+  if (request.method === 'POST') {
+    const declarado = parseInt(request.headers.get('content-length') || '0', 10);
+    if (declarado > MAX_FOTO_BYTES + 1024) return json({ error: 'arquivo_muito_grande', limite: MAX_FOTO_BYTES }, 413);
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    if (bytes.length === 0) return json({ error: 'arquivo_vazio' }, 400);
+    if (bytes.length > MAX_FOTO_BYTES) return json({ error: 'arquivo_muito_grande', limite: MAX_FOTO_BYTES }, 413);
+    const tipo = detectarTipoArquivo(bytes);
+    if (!tipo || tipo === 'application/pdf') return json({ error: 'tipo_nao_permitido' }, 415);
+    await db.prepare(`INSERT INTO colaborador_fotos (colaborador_id, empresa_id, tipo, tamanho, dados, atualizado_em) VALUES (?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(colaborador_id) DO UPDATE SET tipo = excluded.tipo, tamanho = excluded.tamanho, dados = excluded.dados, atualizado_em = excluded.atualizado_em`)
+      .bind(colaboradorId, empresaId, tipo, bytes.length, bytesParaBase64(bytes)).run();
+    await regHist(db, request, session.username, ehLogo ? 'Atualizou o logo da empresa' : `Atualizou a foto de "${colab[0].nome}"`, 'dados', empresaId);
+    const { results } = await db.prepare('SELECT colaborador_id, atualizado_em FROM colaborador_fotos WHERE colaborador_id = ?').bind(colaboradorId).all();
+    return json({ ok: true, foto: results[0] });
+  }
+  if (request.method === 'DELETE') {
+    const r = await db.prepare('DELETE FROM colaborador_fotos WHERE colaborador_id = ? AND empresa_id = ?').bind(colaboradorId, empresaId).run();
+    if (r.meta && r.meta.changes) await regHist(db, request, session.username, ehLogo ? 'Removeu o logo da empresa' : `Removeu a foto de "${colab[0].nome}"`, 'dados', empresaId);
+    return json({ ok: true });
+  }
+  return json({ error: 'metodo_nao_permitido' }, 405);
 }
 
 async function handleLogin(request, env) {
@@ -336,12 +411,12 @@ async function handleColaborador(request, env, url) {
       id = 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
       const { results } = await db.prepare('SELECT COALESCE(MAX(ordem), 0) AS max FROM colaboradores WHERE empresa_id = ?').bind(empresaId).all();
       await db.prepare('INSERT INTO colaboradores (id, nome, notas, docs, ordem, empresa_id, funcao) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .bind(id, nome, JSON.stringify(notas), JSON.stringify(docs), results[0].max + 1, empresaId, funcao || null).run();
+        .bind(id, nome, JSON.stringify(notas), JSON.stringify(docs), results[0].max + 1, empresaId, funcao).run();
     } else {
       const { results } = await db.prepare('SELECT id FROM colaboradores WHERE id = ? AND empresa_id = ?').bind(id, empresaId).all();
       if (results.length === 0) return json({ error: 'nao_encontrado' }, 404);
       await db.prepare("UPDATE colaboradores SET nome = ?, notas = ?, docs = ?, funcao = ?, updated_at = datetime('now') WHERE id = ?")
-        .bind(nome, JSON.stringify(notas), JSON.stringify(docs), funcao || null, id).run();
+        .bind(nome, JSON.stringify(notas), JSON.stringify(docs), funcao, id).run();
     }
     await regHist(db, request, session.username, (isNew ? 'Criou' : 'Editou') + ` colaborador "${nome}"`, 'dados', empresaId);
     return json({ ok: true, id });
@@ -367,16 +442,18 @@ async function handleColaborador(request, env, url) {
 }
 
 export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    const p = url.pathname;
+  async fetch(request, env, ctx) {
     try {
+      const url = new URL(request.url);
+      const p = url.pathname;
       if (p === '/api/login') return await handleLogin(request, env);
       if (p === '/api/empresas') return await handleEmpresas(request, env, url);
       if (p === '/api/data') return await handleData(request, env, url);
+      if (p === '/api/foto') return await handleFoto(request, env, url);
       if (p === '/api/colaborador') return await handleColaborador(request, env, url);
       if (p.startsWith('/api/')) return json({ error: 'not_found' }, 404);
-      return await env.ASSETS.fetch(request);
+      if (env.ASSETS) return env.ASSETS.fetch(request);
+      return new Response('Not found', { status: 404 });
     } catch (err) {
       console.error(err);
       return json({ error: 'internal_error' }, 500);
