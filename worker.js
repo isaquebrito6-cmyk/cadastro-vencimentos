@@ -378,11 +378,28 @@ async function handleColaboradorLote(request, env, url) {
 
   const { results: tipos } = await db.prepare('SELECT sigla, nome FROM doc_types WHERE empresa_id = ?').bind(empresaId).all();
   const siglasValidas = new Set(tipos.map(t => t.sigla));
-  // Chave canônica: "NR35", "NR-35" e "NR 35" são o mesmo tipo (evita duplicar NR na importação).
+  // "NR-35", "NR 35" e "NR35" são o mesmo tipo. ASO = NR-07, LOTO = NR-10/12, supervisor = NR-33 SUP.
   const chaveSigla = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const identidadeNR = (texto) => {
+    const u = String(texto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+    if (/\bASO\b/.test(u) || /\bNR\s*-?\s*0*7\b/.test(u)) return 'ASO';
+    if (/\bLOTO\b/.test(u) || /NR\s*-?\s*10\s*[\/.\-]\s*12/.test(u)) return 'LOTO';
+    const m = u.match(/NR\s*-?\s*0*(\d{1,2})(?:\s*[\/.\-]\s*0*(\d{1,2}))?/);
+    if (m) {
+      let id = 'NR' + m[1];
+      if (m[2]) id += '/' + m[2];
+      if (/\bSUP\b|\bSUPERVIS/.test(u)) id += 'SUP';
+      return id;
+    }
+    return chaveSigla(u);
+  };
   const porChave = new Map();
-  for (const t of tipos) { const k = chaveSigla(t.sigla); if (k && !porChave.has(k)) porChave.set(k, t.sigla); }
-  for (const t of tipos) { const k = chaveSigla(t.nome); if (k && !porChave.has(k)) porChave.set(k, t.sigla); }
+  const registrar = (texto, sigla) => {
+    for (const k of [chaveSigla(texto), identidadeNR(texto)]) {
+      if (k && !porChave.has(k)) porChave.set(k, sigla);
+    }
+  };
+  for (const t of tipos) { registrar(t.sigla, t.sigla); registrar(t.nome, t.sigla); }
 
   if (body.desfazer && typeof body.desfazer === 'object') {
     const criados = Array.isArray(body.desfazer.criados) ? body.desfazer.criados.map(String).slice(0, LIMITE_IMPORTACAO) : [];
@@ -422,11 +439,12 @@ async function handleColaboradorLote(request, env, url) {
       let sigla = String(siglaRaw || '').trim().toUpperCase().replace(/\s+/g, ' ');
       if (!sigla) continue;
       if (!siglasValidas.has(sigla)) {
-        const k = chaveSigla(sigla);
-        if (porChave.has(k)) sigla = porChave.get(k);          // já existe com outra grafia: reaproveita
-        else if (SIGLA_VALIDA.test(sigla)) {                    // realmente nova: cria uma única vez
+        const k = identidadeNR(sigla) || chaveSigla(sigla);
+        if (k && porChave.has(k)) sigla = porChave.get(k);
+        else if (SIGLA_VALIDA.test(sigla)) {
           siglasNovas.push(sigla);
-          porChave.set(k, sigla);
+          if (k) porChave.set(k, sigla);
+          porChave.set(chaveSigla(sigla), sigla);
           siglasValidas.add(sigla);
         }
       }
@@ -703,8 +721,27 @@ async function handleDoctype(request, env, url) {
     if (!SIGLA_VALIDA.test(sigla)) return json({ error: 'sigla_invalida' }, 400);
     if (!nome) return json({ error: 'nome_obrigatorio' }, 400);
     if (nome.length > 200) return json({ error: 'nome_muito_longo' }, 400);
-    const { results: existing } = await db.prepare('SELECT sigla FROM doc_types WHERE sigla = ? AND empresa_id = ?').bind(sigla, empresaId).all();
-    if (existing.length > 0) return json({ error: 'ja_existe' }, 409);
+    const { results: todosTipos } = await db.prepare('SELECT sigla, nome FROM doc_types WHERE empresa_id = ?').bind(empresaId).all();
+    const chaveSigla = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const identidadeNR = (texto) => {
+      const u = String(texto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+      if (/\bASO\b/.test(u) || /\bNR\s*-?\s*0*7\b/.test(u)) return 'ASO';
+      if (/\bLOTO\b/.test(u) || /NR\s*-?\s*10\s*[\/.\-]\s*12/.test(u)) return 'LOTO';
+      const m = u.match(/NR\s*-?\s*0*(\d{1,2})(?:\s*[\/.\-]\s*0*(\d{1,2}))?/);
+      if (m) {
+        let id = 'NR' + m[1];
+        if (m[2]) id += '/' + m[2];
+        if (/\bSUP\b|\bSUPERVIS/.test(u)) id += 'SUP';
+        return id;
+      }
+      return chaveSigla(u);
+    };
+    const idNova = identidadeNR(sigla);
+    for (const t of todosTipos) {
+      if (t.sigla === sigla || identidadeNR(t.sigla) === idNova || identidadeNR(t.nome) === idNova) {
+        return json({ error: 'ja_existe', sigla: t.sigla }, 409);
+      }
+    }
     const { results: maxRes } = await db.prepare('SELECT COALESCE(MAX(ordem), 0) AS max FROM doc_types WHERE empresa_id = ?').bind(empresaId).all();
     const { results: countRes } = await db.prepare('SELECT COUNT(*) AS count FROM doc_types WHERE empresa_id = ?').bind(empresaId).all();
     const cor = PALETA[countRes[0].count % PALETA.length];
