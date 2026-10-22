@@ -1,7 +1,7 @@
 import { hashPassword, verifyPassword, makeSessionToken, getSession, json, generateRecoveryCode, usernameValido } from './lib/auth.js';
 
-const SIGLA_VALIDA = /^[A-Z0-9][A-Z0-9 \\-\\/.+]{0,19}$/;
-const DATA_ISO = /^\\d{4}-\\d{2}-\\d{2}$/;
+const SIGLA_VALIDA = /^[A-Z0-9][A-Z0-9 \-\/.+]{0,19}$/;
+const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const HASH_FALSO = { salt: '00000000000000000000000000000000', hash: '0'.repeat(64) };
 
 const PALETA = ['#f2b705', '#3fae5c', '#f2954a', '#e05a8a', '#8a6de0', '#4fa3e3', '#c94f4f', '#4fc9a8', '#c9a24f', '#7a8fd6'];
@@ -452,7 +452,21 @@ export default {
       if (p === '/api/foto') return await handleFoto(request, env, url);
       if (p === '/api/colaborador') return await handleColaborador(request, env, url);
       if (p.startsWith('/api/')) return json({ error: 'not_found' }, 404);
-      if (env.ASSETS) return env.ASSETS.fetch(request);
+      if (env.ASSETS) {
+        const assetRes = await env.ASSETS.fetch(request);
+        const path = url.pathname;
+        if ((path === '/' || path === '/index.html') && assetRes.ok) {
+          let html = await assetRes.text();
+          if (!html.includes('carteirinha-patch.js')) {
+            html = html.replace('</body>', '<script src="/carteirinha-patch.js"></script>\n</body>');
+          }
+          const headers = new Headers(assetRes.headers);
+          headers.set('content-type', 'text/html; charset=utf-8');
+          headers.delete('content-length');
+          return new Response(html, { status: assetRes.status, headers });
+        }
+        return assetRes;
+      }
       return new Response('Not found', { status: 404 });
     } catch (err) {
       console.error(err);
