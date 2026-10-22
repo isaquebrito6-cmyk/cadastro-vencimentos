@@ -1,6 +1,9 @@
-const CACHE_NAME = 'vencimentos-cache-v17';
-const APP_SHELL = ['/', '/index.html', '/manifest.json', '/icon-512.png', '/icon-180.png', '/carteirinha-patch.js'];
-const PATCH_TAG = '<script src="/carteirinha-patch.js"></script>';
+const CACHE_NAME = 'vencimentos-cache-v18';
+const APP_SHELL = ['/', '/index.html', '/manifest.json', '/icon-512.png', '/icon-180.png', '/carteirinha-patch.js', '/fix-excluir-empresa.js'];
+const PATCH_TAGS = [
+  '<script src="/carteirinha-patch.js"></script>',
+  '<script src="/fix-excluir-empresa.js"></script>'
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -23,12 +26,13 @@ function injetarPatch(response) {
   const ct = response.headers.get('content-type') || '';
   if (!ct.includes('text/html')) return response;
   return response.text().then((html) => {
-    if (!html.includes('carteirinha-patch.js')) {
-      html = html.replace('</body>', PATCH_TAG + '\n</body>');
-      if (!html.includes('carteirinha-patch.js')) {
-        html = html + PATCH_TAG;
+    PATCH_TAGS.forEach((tag) => {
+      const src = tag.match(/src="([^"]+)"/);
+      if (src && !html.includes(src[1])) {
+        html = html.replace('</body>', tag + '\n</body>');
+        if (!html.includes(src[1])) html = html + tag;
       }
-    }
+    });
     const headers = new Headers(response.headers);
     headers.set('content-type', 'text/html; charset=utf-8');
     headers.delete('content-length');
