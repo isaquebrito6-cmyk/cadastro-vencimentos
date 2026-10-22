@@ -3,189 +3,100 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cadastro de Vencimentos · ASO & NRs — Verzani e Sandrini</title>
+<title>Cadastro de Vencimentos · ASO &amp; NRs — Verzani e Sandrini</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='13' fill='%2315171a'/><path d='M32 9 C38 12.5 44 14 50 14 C50 31 47 42.5 32 55 C17 42.5 14 31 14 14 C20 14 26 12.5 32 9 Z' fill='%23f2b705'/><path d='M24.5 32 L29.5 37.5 L40 25.5' fill='none' stroke='%2315171a' stroke-width='4.5' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <link rel="apple-touch-icon" href="/icon-180.png">
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#15171a">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Vencimentos">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#15171a;--bg-panel:#1c1f23;--bg-panel-2:#22262b;--line:#33383e;--text:#eceae4;--text-dim:#9aa0a8;--amber:#f2b705;--amber-dim:#c99a06;--red:#e2483a;--radius:3px}
+:root{--bg:#15171a;--bg-panel:#1c1f23;--bg-panel-2:#22262b;--line:#33383e;--text:#eceae4;--text-dim:#9aa0a8;--amber:#f2b705;--amber-dim:#c99a06;--red:#e2483a;--orange:#f2954a;--green:#3fae5c;--gray:#6b7280;--gray-dim:#2a2d31;--radius:3px}
 *{box-sizing:border-box}html,body{margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif;min-height:100vh}
-.btn{background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);padding:10px 14px;border-radius:var(--radius);font-weight:600;cursor:pointer}
+body{background:linear-gradient(180deg,rgba(0,0,0,.15),rgba(0,0,0,0) 200px),repeating-linear-gradient(135deg,rgba(242,183,5,.025) 0 2px,transparent 2px 14px),var(--bg);color:var(--text);font-family:Inter,sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh}
+::selection{background:var(--amber);color:#15171a}
+.hazard-strip{height:10px;background:repeating-linear-gradient(135deg,var(--amber) 0 18px,#15171a 18px 36px)}
+header.top{padding:30px 40px 22px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:16px}
+.btn{display:inline-flex;align-items:center;gap:6px;background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);padding:9px 14px;border-radius:var(--radius);font-weight:600;font-size:13px;cursor:pointer;font-family:inherit}
 .btn.primary{background:var(--amber);color:#15171a;border-color:var(--amber)}
+.btn.ghost{background:transparent}
 .btn:hover{border-color:var(--amber-dim)}
-input{background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);padding:10px 12px;border-radius:var(--radius);width:100%;font-size:14px}
-input:focus{outline:1px solid var(--amber);border-color:var(--amber)}
-label{display:block;font-size:11px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px;font-weight:600}
-.field{margin-bottom:14px}
-#loginScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-.card{width:100%;max-width:360px;background:var(--bg-panel);border:1px solid var(--line);border-radius:6px;padding:28px}
-h1{font-size:22px;margin:0 0 8px}
-.sub{color:var(--text-dim);font-size:13px;margin:0 0 20px}
-.err{color:var(--red);font-size:13px;min-height:18px;margin-bottom:8px}
-#appRoot{display:none;padding:20px;max-width:1100px;margin:0 auto}
-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px}
+input,select,textarea{background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);padding:9px 12px;border-radius:var(--radius);font-size:13px;font-family:inherit}
+input:focus,select:focus,textarea:focus{outline:1px solid var(--amber);border-color:var(--amber)}
+label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);margin-bottom:5px;font-weight:600}
+.field{margin-bottom:12px}
+#loginScreen{min-height:100vh;display:flex;flex-direction:column}
+#loginScreen .center{flex:1;display:flex;align-items:center;justify-content:center;padding:24px}
+#loginCard{width:100%;max-width:380px;background:var(--bg-panel);border:1px solid var(--line);border-radius:6px;padding:28px}
+#appRoot{display:none}
+main{padding:20px 40px 40px;max-width:1400px;margin:0 auto}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th,td{padding:10px;border-bottom:1px solid var(--line);text-align:left}
-th{color:var(--text-dim);font-size:11px;text-transform:uppercase}
-.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
-.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-panel);border:1px solid var(--amber-dim);padding:12px 16px;border-radius:4px;opacity:0;transition:.2s;z-index:99}
+th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--text-dim);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-panel);border:1px solid var(--amber-dim);padding:12px 16px;border-radius:4px;opacity:0;transition:.2s;z-index:300;max-width:360px}
 .toast.show{opacity:1}
+.badge{display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600}
+.badge.ok{background:rgba(63,174,92,.15);color:var(--green)}
+.badge.warn{background:rgba(242,149,74,.15);color:var(--orange)}
+.badge.bad{background:rgba(226,72,58,.15);color:var(--red)}
+@media(max-width:700px){header.top,main{padding:16px} }
 </style>
 </head>
 <body>
+<div class="hazard-strip"></div>
 <div id="loginScreen">
-  <div class="card">
-    <p class="sub" style="color:var(--amber);letter-spacing:.12em;text-transform:uppercase;font-size:11px;margin-bottom:6px">Verzani e Sandrini · Segurança do Trabalho</p>
-    <h1>Cadastro de Vencimentos</h1>
-    <p class="sub">Entre com seu usuário e senha</p>
-    <div class="field"><label>Usuário</label><input id="loginUser" autocomplete="username"></div>
-    <div class="field"><label>Senha</label><input id="loginPass" type="password" autocomplete="current-password"></div>
-    <div class="err" id="loginErr"></div>
-    <button class="btn primary" id="loginBtn" style="width:100%">Entrar</button>
+  <div class="center">
+    <div id="loginCard">
+      <p style="color:var(--amber);letter-spacing:.12em;text-transform:uppercase;font-size:11px;margin:0 0 6px;font-weight:600">Verzani e Sandrini · Segurança do Trabalho</p>
+      <h1 style="font-family:Oswald,sans-serif;font-size:24px;margin:0 0 8px">Cadastro de Vencimentos</h1>
+      <p style="color:var(--text-dim);font-size:13px;margin:0 0 20px">Entre com seu usuário e senha</p>
+      <div class="field"><label>Usuário</label><input id="loginUser" autocomplete="username"></div>
+      <div class="field"><label>Senha</label><input id="loginPass" type="password" autocomplete="current-password"></div>
+      <div id="loginErr" style="color:var(--red);font-size:13px;min-height:18px;margin-bottom:8px"></div>
+      <button class="btn primary" id="loginBtn" style="width:100%">Entrar</button>
+      <p style="margin:14px 0 0;font-size:12px;color:var(--text-dim);text-align:center"><a href="#" id="forgotLink" style="color:var(--amber)">Esqueci a senha</a></p>
+    </div>
   </div>
 </div>
 <div id="appRoot">
-  <header>
+  <header class="top">
     <div>
-      <div style="color:var(--amber);font-size:11px;letter-spacing:.12em;text-transform:uppercase">ASO & NRs</div>
-      <h1 style="margin:4px 0 0;font-size:20px" id="empresaTitulo">Cadastro de Vencimentos</h1>
+      <div style="color:var(--amber);font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:600">ASO &amp; NRs</div>
+      <h1 style="font-family:Oswald,sans-serif;margin:4px 0 0;font-size:22px" id="empresaTitulo">Cadastro de Vencimentos</h1>
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select id="empresaSelect" style="display:none;min-width:160px"></select>
       <span id="userLabel" style="color:var(--text-dim);font-size:13px"></span>
-      <button class="btn" id="logoutBtn">Sair</button>
+      <button class="btn ghost" id="logoutBtn">Sair</button>
     </div>
   </header>
-  <div class="toolbar">
-    <input id="busca" placeholder="Buscar colaborador..." style="flex:1;min-width:160px">
-    <button class="btn primary" id="novoBtn">＋ Novo</button>
-    <button class="btn" id="refreshBtn">Atualizar</button>
-  </div>
-  <div style="overflow-x:auto;border:1px solid var(--line);border-radius:4px;background:var(--bg-panel)">
-    <table>
-      <thead><tr><th>Nome</th><th>Função</th><th>Docs</th><th></th></tr></thead>
-      <tbody id="tbody"></tbody>
-    </table>
-  </div>
-  <p id="count" style="color:var(--text-dim);font-size:12px;margin-top:10px"></p>
+  <main>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center">
+      <input id="busca" placeholder="Buscar colaborador..." style="flex:1;min-width:160px">
+      <button class="btn primary" id="novoBtn">＋ Novo colaborador</button>
+      <button class="btn" id="refreshBtn">Atualizar</button>
+      <button class="btn ghost" id="empresasBtn">Empresas</button>
+    </div>
+    <div style="overflow-x:auto;border:1px solid var(--line);border-radius:4px;background:var(--bg-panel)">
+      <table>
+        <thead><tr><th>Nome</th><th>Função / Obs.</th><th>Documentos (NRs)</th><th></th></tr></thead>
+        <tbody id="tbody"><tr><td colspan="4" style="padding:28px;text-align:center;color:var(--text-dim)">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+    <p id="count" style="color:var(--text-dim);font-size:12px;margin-top:10px"></p>
+    <footer style="margin-top:32px;padding-top:16px;border-top:1px solid var(--line);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--text-dim)">
+      <span>Documento independente de cadastro · avisos configuráveis de vencimento</span>
+      <span id="footRight"></span>
+    </footer>
+  </main>
 </div>
-<div class="toast" id="toast"></div>
-<script>
-const TOKEN_KEY = 'cv_token';
-let TOKEN = localStorage.getItem(TOKEN_KEY) || '';
-let DATA = [], DOC_TYPES = {}, ROLE = '', USER = '', EMPRESA = null;
-
-function toast(msg){
-  const el = document.getElementById('toast');
-  el.textContent = msg; el.classList.add('show');
-  setTimeout(() => el.classList.remove('show'), 2800);
-}
-async function api(path, opts = {}){
-  const headers = { 'content-type': 'application/json', ...(opts.headers||{}) };
-  if (TOKEN) headers.authorization = 'Bearer ' + TOKEN;
-  let url = path;
-  if (EMPRESA && EMPRESA.id && path.startsWith('/api/') && path !== '/api/login') {
-    url += (path.includes('?') ? '&' : '?') + 'empresa_id=' + EMPRESA.id;
-  }
-  const res = await fetch(url, { ...opts, headers });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || data.msg || ('HTTP ' + res.status));
-  return data;
-}
-function showApp(){
-  document.getElementById('loginScreen').style.display = 'none';
-  document.getElementById('appRoot').style.display = 'block';
-}
-function showLogin(msg){
-  TOKEN = ''; localStorage.removeItem(TOKEN_KEY);
-  document.getElementById('loginScreen').style.display = 'flex';
-  document.getElementById('appRoot').style.display = 'none';
-  if (msg) document.getElementById('loginErr').textContent = msg;
-}
-async function login(){
-  const username = document.getElementById('loginUser').value.trim();
-  const password = document.getElementById('loginPass').value;
-  const err = document.getElementById('loginErr');
-  err.textContent = '';
-  try {
-    const data = await api('/api/login', { method:'POST', body: JSON.stringify({ username, password }) });
-    TOKEN = data.token; localStorage.setItem(TOKEN_KEY, TOKEN);
-    USER = data.username; ROLE = data.role;
-    showApp();
-    await load();
-  } catch (e) {
-    err.textContent = e.message === 'invalid_credentials' ? 'Usuário ou senha incorretos.' : (e.message || 'Falha no login');
-  }
-}
-async function load(){
-  try {
-    const data = await api('/api/data');
-    DATA = data.colaboradores || [];
-    DOC_TYPES = {};
-    (data.docTypes||[]).forEach(d => { DOC_TYPES[d.sigla] = d; });
-    ROLE = data.role; USER = data.username;
-    EMPRESA = data.empresaAtual;
-    document.getElementById('userLabel').textContent = USER + (ROLE === 'admin' ? ' · admin' : '');
-    document.getElementById('empresaTitulo').textContent = (EMPRESA && EMPRESA.nome) || 'Cadastro de Vencimentos';
-    render();
-  } catch (e) {
-    if (String(e.message).includes('unauthorized')) showLogin('Sessão expirada. Entre de novo.');
-    else toast('Erro ao carregar: ' + e.message);
-  }
-}
-function render(){
-  const q = (document.getElementById('busca').value || '').toLowerCase();
-  const rows = DATA.filter(e => !q || (e.nome||'').toLowerCase().includes(q) || (e.funcao||'').toLowerCase().includes(q));
-  const tb = document.getElementById('tbody');
-  if (!rows.length) {
-    tb.innerHTML = '<tr><td colspan="4" style="color:var(--text-dim);padding:28px;text-align:center">Nenhum colaborador</td></tr>';
-  } else {
-    tb.innerHTML = rows.map(e => {
-      const docs = Object.keys(e.docs||{}).filter(s => e.docs[s]).map(s => s).join(', ') || '—';
-      return '<tr>' +
-        '<td style="font-weight:600">' + esc(e.nome) + '</td>' +
-        '<td style="color:var(--text-dim)">' + esc(e.funcao||'—') + '</td>' +
-        '<td style="font-size:12px;color:var(--text-dim)">' + esc(docs) + '</td>' +
-        '<td><button class="btn" data-del="' + esc(e.id) + '" style="padding:4px 8px;font-size:12px">Excluir</button></td>' +
-      '</tr>';
-    }).join('');
-  }
-  document.getElementById('count').textContent = rows.length + ' de ' + DATA.length + ' colaboradores';
-  tb.querySelectorAll('[data-del]').forEach(btn => btn.onclick = async () => {
-    if (!confirm('Mover para a lixeira?')) return;
-    try {
-      await api('/api/colaborador?id=' + encodeURIComponent(btn.dataset.del), { method:'DELETE' });
-      toast('Movido para a lixeira');
-      await load();
-    } catch (e) { toast('Erro: ' + e.message); }
-  });
-}
-function esc(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&','<':'<','>':'>','"':'"',"'":'&#39;'}[c])); }
-async function novo(){
-  const nome = prompt('Nome completo do colaborador:');
-  if (!nome || !nome.trim()) return;
-  const funcao = prompt('Função / cargo (opcional):') || '';
-  try {
-    await api('/api/colaborador', { method:'POST', body: JSON.stringify({ nome: nome.trim(), funcao: funcao.trim(), notas: [], docs: {} }) });
-    toast('Colaborador criado');
-    await load();
-  } catch (e) { toast('Erro: ' + e.message); }
-}
-document.getElementById('loginBtn').onclick = login;
-document.getElementById('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
-document.getElementById('logoutBtn').onclick = () => showLogin();
-document.getElementById('refreshBtn').onclick = load;
-document.getElementById('novoBtn').onclick = novo;
-document.getElementById('busca').oninput = render;
-(async () => {
-  if (TOKEN) {
-    try { showApp(); await load(); return; } catch (_) {}
-  }
-  showLogin();
-})();
-</script>
+<div class="toast" id="toast"><span id="toastMsg"></span></div>
+<script src="/app-a.js"></script>
+<script src="/app-b.js"></script>
+<script src="/app-c.js"></script>
 </body>
 </html>
