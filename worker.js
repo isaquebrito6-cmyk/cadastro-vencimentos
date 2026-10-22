@@ -373,8 +373,13 @@ async function handleColaboradorLote(request, env, url) {
   let body;
   try { body = await request.json(); } catch { return json({ error: 'invalid_body' }, 400); }
 
-  const { results: tipos } = await db.prepare('SELECT sigla FROM doc_types WHERE empresa_id = ?').bind(empresaId).all();
+  const { results: tipos } = await db.prepare('SELECT sigla, nome FROM doc_types WHERE empresa_id = ?').bind(empresaId).all();
   const siglasValidas = new Set(tipos.map(t => t.sigla));
+  // Chave canônica: "NR35", "NR-35" e "NR 35" são o mesmo tipo (evita duplicar NR na importação).
+  const chaveSigla = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const porChave = new Map();
+  for (const t of tipos) { const k = chaveSigla(t.sigla); if (k && !porChave.has(k)) porChave.set(k, t.sigla); }
+  for (const t of tipos) { const k = chaveSigla(t.nome); if (k && !porChave.has(k)) porChave.set(k, t.sigla); }
 
   if (body.desfazer && typeof body.desfazer === 'object') {
     const criados = Array.isArray(body.desfazer.criados) ? body.desfazer.criados.map(String).slice(0, LIMITE_IMPORTACAO) : [];
@@ -407,16 +412,24 @@ async function handleColaboradorLote(request, env, url) {
 
   // Na importação: se a planilha trouxer colunas de NR/treinamento que ainda não existem, cria o tipo automaticamente
   const siglasNovas = [];
-  const vistoNova = new Set();
   for (const r of registros) {
     if (!r || !r.docs || typeof r.docs !== 'object') continue;
-    for (const siglaRaw of Object.keys(r.docs)) {
-      const sigla = String(siglaRaw || '').trim().toUpperCase().replace(/\s+/g, ' ');
-      if (!sigla || siglasValidas.has(sigla) || vistoNova.has(sigla)) continue;
-      if (!SIGLA_VALIDA.test(sigla)) continue;
-      vistoNova.add(sigla);
-      siglasNovas.push(sigla);
+    const novoDocs = {};
+    for (const [siglaRaw, valor] of Object.entries(r.docs)) {
+      let sigla = String(siglaRaw || '').trim().toUpperCase().replace(/\s+/g, ' ');
+      if (!sigla) continue;
+      if (!siglasValidas.has(sigla)) {
+        const k = chaveSigla(sigla);
+        if (porChave.has(k)) sigla = porChave.get(k);          // já existe com outra grafia: reaproveita
+        else if (SIGLA_VALIDA.test(sigla)) {                    // realmente nova: cria uma única vez
+          siglasNovas.push(sigla);
+          porChave.set(k, sigla);
+          siglasValidas.add(sigla);
+        }
+      }
+      novoDocs[sigla] = valor;
     }
+    r.docs = novoDocs;
   }
   if (siglasNovas.length > 0) {
     const { results: maxRes } = await db.prepare('SELECT COALESCE(MAX(ordem), 0) AS max FROM doc_types WHERE empresa_id = ?').bind(empresaId).all();
@@ -436,7 +449,6 @@ async function handleColaboradorLote(request, env, url) {
         db.prepare('INSERT INTO doc_types (sigla, nome, descricao, cor, ordem, empresa_id) VALUES (?, ?, ?, ?, ?, ?)')
           .bind(sigla, nome, desc, cor, ordem, empresaId)
       );
-      siglasValidas.add(sigla);
     }
     await db.batch(stmtsTipos);
     await regHist(db, request, session.username, `Criou automaticamente ${siglasNovas.length} tipo(s) de documento na importação: ${siglasNovas.join(', ')}`, 'dados', empresaId);

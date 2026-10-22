@@ -1611,6 +1611,8 @@ async function prepararArquivoCert(file){
 
 async function enviarCertificados(colabId, sigla, arquivos){
   for(const file of arquivos){
+    const repetido = CERTS.some(c => c.colaborador_id === colabId && c.sigla === sigla && c.nome_arquivo === file.name && !c.deletado_em && Math.abs((c.tamanho||0) - file.size) < 1);
+    if(repetido){ showToast(`"${file.name}" já está anexado neste documento.`); continue; }
     const statusEl = () => {
       const box = Array.from(document.querySelectorAll('[data-cert-colab]')).find(b => b.dataset.certColab === colabId && b.dataset.certSigla === sigla);
       return box ? box.querySelector('.cert-status') : null;
@@ -1966,7 +1968,9 @@ function abrirImport(){
   document.getElementById('importModal').style.display = 'flex';
 }
 
+let IMPORTANDO = false;
 async function confirmarImport(){
+  if(IMPORTANDO) return;
   const itens = IMPORT_ITENS.filter(i => i.situacao !== 'erro');
   const modo = document.getElementById('importModo').value;
   if(!itens.length){ showToast('Nada para importar.'); return; }
@@ -1976,6 +1980,7 @@ async function confirmarImport(){
   }
   const naoImportadas = IMPORT_ITENS.length - itens.length;
   const btn = document.getElementById('importConfirmar');
+  IMPORTANDO = true;
   btn.disabled = true;
   btn.textContent = 'Importando…';
   try{
@@ -1996,21 +2001,25 @@ async function confirmarImport(){
     const msg = err.message === 'limite_de_registros' ? `máximo de ${LIMITE_IMPORTACAO} linhas por importação.` : err.message;
     showToast('Não foi possível importar: ' + msg, 'error');
     renderPreviaImport();
-  }
+  }finally{ IMPORTANDO = false; }
 }
 
+let DESFAZENDO_IMPORT = false;
 async function desfazerImport(){
-  if(!ULTIMA_IMPORTACAO) return;
+  if(!ULTIMA_IMPORTACAO || DESFAZENDO_IMPORT) return;
   if(!confirm('Desfazer a última importação?\n\nOs cadastros criados vão para a Lixeira e as datas alteradas voltam ao que eram antes.')) return;
+  DESFAZENDO_IMPORT = true;
+  const payload = ULTIMA_IMPORTACAO;
+  ULTIMA_IMPORTACAO = null;
   try{
-    const r = await apiFetch('/api/colaborador-lote', {method:'POST', body: JSON.stringify({desfazer: ULTIMA_IMPORTACAO})});
-    ULTIMA_IMPORTACAO = null;
+    const r = await apiFetch('/api/colaborador-lote', {method:'POST', body: JSON.stringify({desfazer: payload})});
     await refreshData();
     atualizarBoxDesfazer();
     showToast(`Importação desfeita: ${r.removidos} cadastro(s) na Lixeira, ${r.restaurados} restaurado(s).`);
   }catch(err){
+    ULTIMA_IMPORTACAO = payload;
     showToast('Não foi possível desfazer: ' + err.message, 'error');
-  }
+  }finally{ DESFAZENDO_IMPORT = false; }
 }
 
 // ---- leitura de arquivos ----
