@@ -3,22 +3,22 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cadastro de Vencimentos · ASO &amp; NRs — Verzani e Sandrini</title>
+<title>Cadastro de Vencimentos · ASO & NRs — Verzani e Sandrini</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='13' fill='%2315171a'/><path d='M32 9 C38 12.5 44 14 50 14 C50 31 47 42.5 32 55 C17 42.5 14 31 14 14 C20 14 26 12.5 32 9 Z' fill='%23f2b705'/><path d='M24.5 32 L29.5 37.5 L40 25.5' fill='none' stroke='%2315171a' stroke-width='4.5' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <link rel="apple-touch-icon" href="/icon-180.png">
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#15171a">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Vencimentos">
 <style>
-:root{--bg:#15171a;--bg-panel:#1c1f23;--bg-panel-2:#22262b;--line:#33383e;--text:#eceae4;--text-dim:#9aa0a8;--amber:#f2b705;--amber-dim:#c99a06;--red:#e2483a;--orange:#f2954a;--green:#3fae5c;--gray:#6b7280;--radius:3px}
+:root{--bg:#15171a;--bg-panel:#1c1f23;--bg-panel-2:#22262b;--line:#33383e;--text:#eceae4;--text-dim:#9aa0a8;--amber:#f2b705;--amber-dim:#c99a06;--red:#e2483a;--radius:3px}
 *{box-sizing:border-box}html,body{margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif;min-height:100vh}
-.btn{background:var(--bg-panel-2);border:1var(--line);color:var(--text);padding:10px 14px;border-radius:var(--radius);font-weight:600;cursor:pointer}
+.btn{background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);padding:10px 14px;border-radius:var(--radius);font-weight:600;cursor:pointer}
 .btn.primary{background:var(--amber);color:#15171a;border-color:var(--amber)}
+.btn:hover{border-color:var(--amber-dim)}
 input{background:var(--bg-panel-2);border:1px solid var(--line);color:var(--text);padding:10px 12px;border-radius:var(--radius);width:100%;font-size:14px}
+input:focus{outline:1px solid var(--amber);border-color:var(--amber)}
 label{display:block;font-size:11px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px;font-weight:600}
 .field{margin-bottom:14px}
 #loginScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
@@ -51,7 +51,7 @@ th{color:var(--text-dim);font-size:11px;text-transform:uppercase}
 <div id="appRoot">
   <header>
     <div>
-      <div style="color:var(--amber);font-size:11px;letter-spacing:.12em;text-transform:uppercase">ASO &amp; NRs</div>
+      <div style="color:var(--amber);font-size:11px;letter-spacing:.12em;text-transform:uppercase">ASO & NRs</div>
       <h1 style="margin:4px 0 0;font-size:20px" id="empresaTitulo">Cadastro de Vencimentos</h1>
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -145,12 +145,12 @@ function render(){
   } else {
     tb.innerHTML = rows.map(e => {
       const docs = Object.keys(e.docs||{}).filter(s => e.docs[s]).map(s => s).join(', ') || '—';
-      return `<tr>
-        <td style="font-weight:600">${esc(e.nome)}</td>
-        <td style="color:var(--text-dim)">${esc(e.funcao||'—')}</td>
-        <td style="font-size:12px;color:var(--text-dim)">${esc(docs)}</td>
-        <td><button class="btn" data-del="${esc(e.id)}" style="padding:4px 8px;font-size:12px">Excluir</button></td>
-      </tr>`;
+      return '<tr>' +
+        '<td style="font-weight:600">' + esc(e.nome) + '</td>' +
+        '<td style="color:var(--text-dim)">' + esc(e.funcao||'—') + '</td>' +
+        '<td style="font-size:12px;color:var(--text-dim)">' + esc(docs) + '</td>' +
+        '<td><button class="btn" data-del="' + esc(e.id) + '" style="padding:4px 8px;font-size:12px">Excluir</button></td>' +
+      '</tr>';
     }).join('');
   }
   document.getElementById('count').textContent = rows.length + ' de ' + DATA.length + ' colaboradores';
@@ -163,7 +163,7 @@ function render(){
     } catch (e) { toast('Erro: ' + e.message); }
   });
 }
-function esc(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function esc(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&','<':'<','>':'>','"':'"',"'":'&#39;'}[c])); }
 async function novo(){
   const nome = prompt('Nome completo do colaborador:');
   if (!nome || !nome.trim()) return;
