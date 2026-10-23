@@ -1,4 +1,4 @@
-/* Patch v5: exclusao de empresa pelo seletor + dedup por nome + assinaturas + funcao + badges */
+/* Patch v6: excluir empresa (prompt com nome), chips iguais ao cadastro, exclusao em lote */
 (function () {
   var SIG_COLAB_KEY = 'cv_assinatura_colaborador';
   var SIG_RESP_KEY = 'cv_assinatura_responsavel';
@@ -154,8 +154,36 @@
     window.desenharFrente.__patchedFuncao = true;
   }
 
+  function rotuloLocal(sigla) {
+    if (typeof window.rotuloChip === 'function') return window.rotuloChip(sigla);
+    var su = String(sigla).toUpperCase();
+    if (su === 'ASO') return { top: 'ASO', bottom: '' };
+    if (su === 'LOTO') return { top: 'NR', bottom: '10/12' };
+    var sem = String(sigla).replace(/^NR-?/i, '').trim();
+    var temSup = /SUP/i.test(sem);
+    var num = sem.replace(/SUP/i, '').trim() || su;
+    if (temSup) num += '+';
+    return { top: 'NR', bottom: num };
+  }
+
+  function corStatusLocal(st) {
+    if (window.STATUS_META && window.STATUS_META[st]) return window.STATUS_META[st].cor;
+    if (st === 'vencido') return '#e2483a';
+    if (st === 'a_vencer') return '#f2954a';
+    if (st === 'valido') return '#3fae5c';
+    return '#6b7280';
+  }
+
+  function corDocLocal(sigla) {
+    try {
+      if (window.DOC_META && window.DOC_META[sigla] && window.DOC_META[sigla].cor) return window.DOC_META[sigla].cor;
+      if (window.DOC_TYPES && window.DOC_TYPES[sigla] && window.DOC_TYPES[sigla].cor) return window.DOC_TYPES[sigla].cor;
+    } catch (_) {}
+    return '#c9a24f';
+  }
+
   function patchDesenharFrenteBadges() {
-    if (typeof window.desenharFrente !== 'function' || window.desenharFrente.__patchedBadges) return;
+    if (typeof window.desenharFrente !== 'function' || window.desenharFrente.__patchedBadges2) return;
     var prev = window.desenharFrente;
     window.desenharFrente = async function (e, sigla, fotoURL, logoURL, equip) {
       var c = await prev(e, sigla, fotoURL, logoURL, equip);
@@ -166,34 +194,48 @@
         order.forEach(function (s) {
           if (!e.docs || !e.docs[s]) return;
           var st = typeof window.statusFor === 'function' ? window.statusFor(e.docs[s]) : 'valido';
+          if (st === 'sem_registro') return;
           itens.push({ sigla: s, st: st });
         });
         if (!itens.length) return c;
-        var x = 28, y = c.height - 52, gap = 8, maxX = c.width - 28;
+
+        var x = 28, y = c.height - 56, gap = 6, maxX = c.width - 28;
         itens.forEach(function (it) {
-          ctx.font = '700 16px Oswald, sans-serif';
-          var bw = ctx.measureText(it.sigla).width + 28, bh = 26;
-          if (x + bw > maxX) return;
-          var cor = it.st === 'vencido' ? '#D3211A' : (it.st === 'a_vencer' ? '#f2b705' : '#3fae5c');
-          var isAtual = it.sigla === sigla;
-          ctx.fillStyle = isAtual ? cor : '#fff'; ctx.strokeStyle = cor; ctx.lineWidth = 2;
-          var r = 8;
+          var rot = rotuloLocal(it.sigla);
+          var bg = corDocLocal(it.sigla);
+          var border = corStatusLocal(it.st);
+          var cw = 36, ch = 32;
+          if (x + cw > maxX) return;
+
+          ctx.fillStyle = bg;
+          ctx.strokeStyle = border;
+          ctx.lineWidth = 3;
           ctx.beginPath();
-          ctx.moveTo(x + r, y); ctx.lineTo(x + bw - r, y); ctx.quadraticCurveTo(x + bw, y, x + bw, y + r);
-          ctx.lineTo(x + bw, y + bh - r); ctx.quadraticCurveTo(x + bw, y + bh, x + bw - r, y + bh);
-          ctx.lineTo(x + r, y + bh); ctx.quadraticCurveTo(x, y + bh, x, y + bh - r);
-          ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
-          ctx.fill(); ctx.stroke();
-          ctx.fillStyle = cor; ctx.beginPath(); ctx.arc(x + 12, y + bh / 2, 5, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = (isAtual && it.st === 'vencido') ? '#fff' : '#111';
-          ctx.font = '700 15px Oswald, sans-serif'; ctx.textBaseline = 'middle';
-          ctx.fillText(it.sigla, x + 22, y + bh / 2 + 1);
-          x += bw + gap;
+          ctx.rect(x, y, cw, ch);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = '#15171a';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          if (rot.bottom) {
+            ctx.font = '700 9px "IBM Plex Mono", monospace';
+            ctx.globalAlpha = 0.85;
+            ctx.fillText(rot.top, x + cw / 2, y + 10);
+            ctx.globalAlpha = 1;
+            ctx.font = '800 12px "IBM Plex Mono", monospace';
+            ctx.fillText(rot.bottom, x + cw / 2, y + 22);
+          } else {
+            ctx.font = '800 12px "IBM Plex Mono", monospace';
+            ctx.fillText(rot.top, x + cw / 2, y + ch / 2 + 1);
+          }
+          ctx.textAlign = 'left';
+          x += cw + gap;
         });
       } catch (_) {}
       return c;
     };
-    window.desenharFrente.__patchedBadges = true;
+    window.desenharFrente.__patchedBadges2 = true;
   }
 
   function ensureExcluirEmpresaBtn() {
@@ -232,7 +274,7 @@
 
         if (!confirm('Excluir a empresa "' + nome + '" (id ' + id + ')?\n\nApaga colaboradores e documentos desta empresa.')) return;
 
-        var conf = prompt('Digite o nome da empresa para confirmar:\n\n' + nome);
+        var conf = prompt('Confirme o nome da empresa (já preenchido — pode copiar/colar ou só OK):', nome);
         if (conf === null) return;
         var a = String(conf).trim().toLowerCase().replace(/\s+/g, ' ');
         var b = String(nome).trim().toLowerCase().replace(/\s+/g, ' ');
@@ -287,7 +329,6 @@
         }
       } catch (_) {}
       var r = orig();
-      // limpa options duplicadas no DOM
       try {
         var sel = document.getElementById('seletorEmpresa');
         if (sel) {
@@ -304,6 +345,89 @@
     };
     window.renderSeletorEmpresa.__patchedDedup2 = true;
     try { window.renderSeletorEmpresa(); } catch (_) {}
+  }
+
+  function ensureBatchToolbar() {
+    if (document.getElementById('batchDelBtn')) return;
+    var addBtn = document.getElementById('addBtn');
+    if (!addBtn) return;
+    var wrap = document.createElement('span');
+    wrap.id = 'batchToolbar';
+    wrap.style.cssText = 'display:inline-flex;align-items:center;gap:8px;margin-left:8px;flex-wrap:wrap;';
+    wrap.innerHTML =
+      '<label style="font-size:12px;display:inline-flex;align-items:center;gap:4px;cursor:pointer;">' +
+      '<input type="checkbox" id="colabSelectAll"> Todos</label>' +
+      '<button type="button" class="btn ghost" id="batchDelBtn" style="color:var(--red,#e2483a);">Excluir selecionados</button>' +
+      '<span id="batchCount" style="font-size:11px;color:var(--text-dim,#9aa0a8);"></span>';
+    addBtn.parentNode.insertBefore(wrap, addBtn.nextSibling);
+
+    document.getElementById('colabSelectAll').addEventListener('change', function (ev) {
+      var on = !!ev.target.checked;
+      document.querySelectorAll('#tableBody .colab-check').forEach(function (c) { c.checked = on; });
+      atualizarBatchCount();
+    });
+
+    document.getElementById('batchDelBtn').addEventListener('click', async function () {
+      var ids = [];
+      document.querySelectorAll('#tableBody .colab-check:checked').forEach(function (c) {
+        if (c.dataset.colabId) ids.push(c.dataset.colabId);
+      });
+      if (!ids.length) {
+        if (typeof window.showToast === 'function') window.showToast('Selecione ao menos um colaborador.', 'error');
+        return;
+      }
+      if (!confirm('Mover ' + ids.length + ' colaborador(es) para a lixeira?')) return;
+      var ok = 0, fail = 0;
+      for (var i = 0; i < ids.length; i++) {
+        try {
+          await window.apiFetch('/api/colaborador?id=' + encodeURIComponent(ids[i]), { method: 'DELETE' });
+          ok++;
+        } catch (_) { fail++; }
+      }
+      if (typeof window.refreshData === 'function') await window.refreshData();
+      if (typeof window.showToast === 'function') {
+        window.showToast(ok + ' movido(s) para a lixeira' + (fail ? ', ' + fail + ' falha(s)' : '') + '.');
+      }
+      var all = document.getElementById('colabSelectAll');
+      if (all) all.checked = false;
+      atualizarBatchCount();
+    });
+  }
+
+  function atualizarBatchCount() {
+    var n = document.querySelectorAll('#tableBody .colab-check:checked').length;
+    var el = document.getElementById('batchCount');
+    if (el) el.textContent = n ? (n + ' selecionado(s)') : '';
+  }
+
+  function injectRowCheckboxes() {
+    var tbody = document.getElementById('tableBody');
+    if (!tbody) return;
+    var table = tbody.closest('table');
+    if (table) {
+      var headRow = table.querySelector('thead tr');
+      if (headRow && !headRow.querySelector('.th-check')) {
+        var th = document.createElement('th');
+        th.className = 'th-check no-sort';
+        th.style.cssText = 'width:36px;';
+        headRow.insertBefore(th, headRow.firstChild);
+      }
+    }
+    tbody.querySelectorAll('tr').forEach(function (tr) {
+      if (tr.classList.contains('edit-row')) return;
+      if (tr.querySelector('.colab-check')) return;
+      if (tr.querySelector('.empty-state')) return;
+      var del = tr.querySelector('[data-del]');
+      var edit = tr.querySelector('[data-edit]');
+      var id = del ? del.dataset.del : (edit ? edit.dataset.edit : null);
+      if (!id) return;
+      var td = document.createElement('td');
+      td.style.cssText = 'width:36px;vertical-align:middle;';
+      td.innerHTML = '<input type="checkbox" class="colab-check" data-colab-id="' + id + '" style="width:16px;height:16px;cursor:pointer;">';
+      tr.insertBefore(td, tr.firstChild);
+      td.querySelector('.colab-check').addEventListener('change', atualizarBatchCount);
+    });
+    atualizarBatchCount();
   }
 
   function injectFuncaoFields() {
@@ -374,7 +498,9 @@
     patchApiFetchFuncao();
     patchRenderSeletorEmpresa();
     ensureExcluirEmpresaBtn();
+    ensureBatchToolbar();
     injectFuncaoFields();
+    injectRowCheckboxes();
 
     var modal = document.getElementById('cardModal');
     if (modal && !modal.__sigObs) {
@@ -391,6 +517,8 @@
       new MutationObserver(function () {
         injectFuncaoFields();
         ensureExcluirEmpresaBtn();
+        ensureBatchToolbar();
+        injectRowCheckboxes();
         patchRenderSeletorEmpresa();
       }).observe(tbody, { childList: true, subtree: true });
     }
