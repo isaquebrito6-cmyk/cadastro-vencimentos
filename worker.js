@@ -5,6 +5,7 @@ import { handleHistorico } from './lib/handlers_hist2.js';
 import { handleFoto } from './lib/handlers_core.js';
 import { json } from './lib/auth.js';
 
+// deploy trigger 2026-10-23
 export default {
   async fetch(request, env, ctx) {
     try {
@@ -34,7 +35,7 @@ export default {
       return new Response('Not found', { status: 404 });
     } catch (err) {
       console.error(err);
-      return json({ error: 'internal_error' }, 500);
+      return json({ error: 'internal_error', message: String(err && err.message || err) }, 500);
     }
   },
 };
