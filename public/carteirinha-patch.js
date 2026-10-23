@@ -1,4 +1,4 @@
-/* Patch v13: icones so NR em cima + numero embaixo; maiores */
+/* Patch v14: chips so sob a foto (nao sobrepoe APTO); NR + numero */
 (function () {
   var SIG_COLAB_KEY = 'cv_assinatura_colaborador';
   var SIG_RESP_KEY = 'cv_assinatura_responsavel';
@@ -138,7 +138,6 @@
     window.desenharFrente.__patchedFuncao = true;
   }
   function rotuloLocal(sigla) {
-    // Só NR em cima + número embaixo (sem texto longo)
     var su = String(sigla || '').toUpperCase().trim();
     if (su === 'ASO' || /ASO/.test(su)) return { top: 'ASO', bottom: '' };
     if (su === 'LOTO' || /LOTO|BLOQUEIO/.test(su)) return { top: 'NR', bottom: '10/12' };
@@ -167,14 +166,15 @@
     return '#F26B1D';
   }
   function patchDesenharFrenteBadges() {
-    if (typeof window.desenharFrente !== 'function' || window.desenharFrente.__patchedBadges8) return;
+    if (typeof window.desenharFrente !== 'function' || window.desenharFrente.__patchedBadges9) return;
     var prev = window.desenharFrente;
     window.desenharFrente = async function (e, sigla, fotoURL, logoURL, equip) {
       var c = await prev(e, sigla, fotoURL, logoURL, equip);
       try {
         var ctx = c.getContext('2d');
+        // Chips SOMENTE sob a foto — não invadem o botão APTO à direita
         var fx = 40, fy = 196, fw = 240, fh = 320;
-        var shrink = 52;
+        var shrink = 110;
         var fotoBase = fy + fh;
         var novaBase = fotoBase - shrink;
         ctx.fillStyle = '#ffffff';
@@ -193,17 +193,19 @@
         });
         if (!itens.length) return c;
 
-        var cw = 58, ch = 48, gap = 10;
-        var x = fx;
-        var y = novaBase + 4;
-        var maxX = Math.min(c.width - 30, fx + fw + 240);
+        var areaW = fw;
+        var cw = 48, ch = 42, gap = 8;
+        var porLinha = Math.max(1, Math.floor((areaW + gap) / (cw + gap)));
+        var y = novaBase + 8;
+        var col = 0;
 
         itens.forEach(function (it) {
-          if (x + cw > maxX) {
-            x = fx;
-            y += ch + 6;
-            if (y + ch > 552) return;
+          if (col >= porLinha) {
+            col = 0;
+            y += ch + 8;
+            if (y + ch > 548) return;
           }
+          var x = fx + col * (cw + gap);
           var rot = rotuloLocal(it.sigla);
           var bg = corSegChip(it.sigla);
           var border = it.st === 'vencido' ? '#e2483a' : (it.st === 'a_vencer' ? '#f2954a' : '#222');
@@ -222,21 +224,21 @@
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           if (rot.bottom) {
-            ctx.font = '800 12px monospace';
-            ctx.fillText(rot.top, x + cw / 2, y + 14);
-            ctx.font = '900 18px monospace';
-            ctx.fillText(rot.bottom, x + cw / 2, y + 34);
+            ctx.font = '800 11px monospace';
+            ctx.fillText(rot.top, x + cw / 2, y + 13);
+            ctx.font = '900 17px monospace';
+            ctx.fillText(rot.bottom, x + cw / 2, y + 30);
           } else {
-            ctx.font = '900 16px monospace';
+            ctx.font = '900 15px monospace';
             ctx.fillText(rot.top, x + cw / 2, y + ch / 2 + 1);
           }
           ctx.textAlign = 'left';
-          x += cw + gap;
+          col += 1;
         });
       } catch (_) {}
       return c;
     };
-    window.desenharFrente.__patchedBadges8 = true;
+    window.desenharFrente.__patchedBadges9 = true;
   }
 
   function patchHistoricoDelete() {
@@ -523,7 +525,7 @@
       el.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:99999;font-size:10px;opacity:0.55;background:#111;color:#9f9;padding:2px 6px;border-radius:4px;pointer-events:none;';
       document.body.appendChild(el);
     }
-    el.textContent = 'patch v13';
+    el.textContent = 'patch v14';
   }
   function boot() {
     showVersionBadge();
