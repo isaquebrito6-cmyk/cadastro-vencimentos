@@ -458,7 +458,7 @@ export default {
         if ((path === '/' || path === '/index.html') && assetRes.ok) {
           let html = await assetRes.text();
           if (!html.includes('carteirinha-patch.js')) {
-            html = html.replace('</body>', '<script src="/carteirinha-patch.js?v=29"></script>\n</body>');
+            html = html.replace('</body>', '<script src="/carteirinha-patch.js?v=30"></script>\n</body>');
           }
           const headers = new Headers(assetRes.headers);
           headers.set('content-type', 'text/html; charset=utf-8');
