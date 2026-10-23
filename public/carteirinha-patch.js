@@ -1,4 +1,4 @@
-/* Patch v9: chips acima da zebra + empresa nao reaparece */
+/* Patch v10: chips multi-linha sem sobrepor, cor seguranca (laranja maquinas), historico */
 (function () {
   var SIG_COLAB_KEY = 'cv_assinatura_colaborador';
   var SIG_RESP_KEY = 'cv_assinatura_responsavel';
@@ -22,9 +22,10 @@
       ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke(); last = p;
     }
     function end() { drawing = false; }
-    ['mousedown','mousemove','mouseup','mouseleave'].forEach(function (ev, i) {
-      canvas.addEventListener(ev, [start, move, end, end][i]);
-    });
+    canvas.addEventListener('mousedown', start);
+    canvas.addEventListener('mousemove', move);
+    canvas.addEventListener('mouseup', end);
+    canvas.addEventListener('mouseleave', end);
     canvas.addEventListener('touchstart', start, { passive: false });
     canvas.addEventListener('touchmove', move, { passive: false });
     canvas.addEventListener('touchend', end);
@@ -147,25 +148,20 @@
     if (temSup) num += '+';
     return { top: 'NR', bottom: num };
   }
-  function corStatusLocal(st) {
-    if (st === 'vencido') return '#e2483a';
-    if (st === 'a_vencer') return '#f2954a';
-    if (st === 'valido') return '#3fae5c';
-    return '#6b7280';
-  }
   function corDocLocal(sigla) {
     try {
       if (window.DOC_TYPES && window.DOC_TYPES[sigla] && window.DOC_TYPES[sigla].cor) return window.DOC_TYPES[sigla].cor;
     } catch (_) {}
     var s = String(sigla).toUpperCase();
     if (s === 'ASO') return '#3fae5c';
-    if (s.indexOf('35') >= 0) return '#4fa3e3';
-    if (s.indexOf('33') >= 0) return '#f2b705';
-    if (s.indexOf('20') >= 0 || s.indexOf('LOTO') >= 0) return '#c94f4f';
-    return '#c9a24f';
+    if (s.indexOf('35') >= 0) return '#0A5BB5';
+    if (s.indexOf('33') >= 0) return '#F5B800';
+    if (s.indexOf('20') >= 0 || s.indexOf('LOTO') >= 0) return '#D3211A';
+    if (s.indexOf('11') >= 0 || s.indexOf('12') >= 0 || s.indexOf('18') >= 0) return '#F26B1D';
+    return '#F26B1D';
   }
   function patchDesenharFrenteBadges() {
-    if (typeof window.desenharFrente !== 'function' || window.desenharFrente.__patchedBadges4) return;
+    if (typeof window.desenharFrente !== 'function' || window.desenharFrente.__patchedBadges5) return;
     var prev = window.desenharFrente;
     window.desenharFrente = async function (e, sigla, fotoURL, logoURL, equip) {
       var c = await prev(e, sigla, fotoURL, logoURL, equip);
@@ -180,43 +176,94 @@
           itens.push({ sigla: s, st: st });
         });
         if (!itens.length) return c;
-        // zebra inferior = 14px — chips ACIMA dela
-        var zebraH = 14, ch = 56, gapY = 10;
-        var faixaY = c.height - zebraH - gapY - ch;
-        ctx.fillStyle = 'rgba(255,255,255,0.55)';
-        ctx.fillRect(12, faixaY - 6, c.width - 24, ch + 12);
-        var x = 24, y = faixaY, gap = 12, maxX = c.width - 24;
-        itens.forEach(function (it) {
+
+        function corSeg(sig) {
+          try {
+            if (typeof window.corSegurancaDe === 'function') {
+              var cs = window.corSegurancaDe(sig);
+              if (cs && cs.hex) return cs.hex;
+            }
+          } catch (_) {}
+          return corDocLocal(sig);
+        }
+        function corBorda(st) {
+          if (st === 'vencido') return '#e2483a';
+          if (st === 'a_vencer') return '#f2954a';
+          return '#111';
+        }
+
+        // multi-linha, acima da zebra (14px)
+        var zebraH = 14;
+        var cw = 48, ch = 44, gap = 8, padX = 20;
+        var maxPorLinha = Math.max(1, Math.floor((c.width - padX * 2 + gap) / (cw + gap)));
+        var linhas = Math.ceil(itens.length / maxPorLinha);
+        var blocoH = linhas * ch + (linhas - 1) * gap;
+        var startY = c.height - zebraH - 8 - blocoH;
+
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.fillRect(padX - 6, startY - 6, c.width - (padX - 6) * 2, blocoH + 12);
+
+        itens.forEach(function (it, idx) {
+          var row = Math.floor(idx / maxPorLinha);
+          var col = idx % maxPorLinha;
+          var x = padX + col * (cw + gap);
+          var y = startY + row * (ch + gap);
           var rot = rotuloLocal(it.sigla);
-          var bg = corDocLocal(it.sigla);
-          var border = corStatusLocal(it.st);
-          var cw = 58;
-          if (x + cw > maxX) return;
-          ctx.fillStyle = 'rgba(0,0,0,0.28)';
-          ctx.fillRect(x + 3, y + 3, cw, ch);
+          var bg = corSeg(it.sigla);
+          var border = corBorda(it.st);
+
+          ctx.fillStyle = 'rgba(0,0,0,0.2)';
+          ctx.fillRect(x + 2, y + 2, cw, ch);
           ctx.fillStyle = bg;
           ctx.strokeStyle = border;
-          ctx.lineWidth = 5;
+          ctx.lineWidth = 3;
           ctx.beginPath(); ctx.rect(x, y, cw, ch); ctx.fill(); ctx.stroke();
+
           ctx.fillStyle = '#111';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           if (rot.bottom) {
-            ctx.font = '800 13px monospace';
-            ctx.fillText(rot.top, x + cw / 2, y + 16);
-            ctx.font = '900 20px monospace';
-            ctx.fillText(rot.bottom, x + cw / 2, y + 38);
+            ctx.font = '800 11px monospace';
+            ctx.fillText(rot.top, x + cw / 2, y + 13);
+            ctx.font = '900 16px monospace';
+            ctx.fillText(rot.bottom, x + cw / 2, y + 30);
           } else {
-            ctx.font = '900 20px monospace';
+            ctx.font = '900 14px monospace';
             ctx.fillText(rot.top, x + cw / 2, y + ch / 2 + 1);
           }
           ctx.textAlign = 'left';
-          x += cw + gap;
         });
       } catch (_) {}
       return c;
     };
-    window.desenharFrente.__patchedBadges4 = true;
+    window.desenharFrente.__patchedBadges5 = true;
+  }
+
+  function patchHistoricoDelete() {
+    var list = document.getElementById('historicoList');
+    if (!list || list.__histDelPatched) return;
+    list.__histDelPatched = true;
+    list.addEventListener('click', async function (ev) {
+      var btn = ev.target.closest('[data-del-historico]');
+      if (!btn) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      var id = btn.dataset.delHistorico;
+      if (!id) return;
+      if (!confirm('Mover este registro para a lixeira? Dá pra restaurar depois.')) return;
+      try {
+        await window.apiFetch('/api/historico?id=' + encodeURIComponent(id), { method: 'DELETE' });
+        if (typeof window.refreshData === 'function') await window.refreshData();
+        if (typeof window.showToast === 'function') window.showToast('Registro apagado.');
+        else alert('Registro apagado.');
+      } catch (err) {
+        var msg = (err && err.message) || String(err);
+        if (msg === 'nao_encontrado') msg = 'Não encontrado (já apagado ou de outra empresa).';
+        if (msg === 'somente_admin') msg = 'Somente administrador pode apagar histórico.';
+        if (typeof window.showToast === 'function') window.showToast('Não foi possível apagar: ' + msg, 'error');
+        else alert('Não foi possível apagar: ' + msg);
+      }
+    }, true);
   }
 
   function rotularSeletorEmpresas() {
@@ -225,13 +272,11 @@
     var nomes = {};
     Array.prototype.slice.call(sel.options).forEach(function (opt) {
       var base = String(opt.textContent || '').replace(/\s*\(id\s*\d+\)\s*$/i, '').trim();
-      var k = base.toLowerCase();
-      nomes[k] = (nomes[k] || 0) + 1;
+      nomes[base.toLowerCase()] = (nomes[base.toLowerCase()] || 0) + 1;
     });
     Array.prototype.slice.call(sel.options).forEach(function (opt) {
       var base = String(opt.textContent || '').replace(/\s*\(id\s*\d+\)\s*$/i, '').trim();
-      var k = base.toLowerCase();
-      opt.textContent = nomes[k] > 1 ? (base + ' (id ' + opt.value + ')') : base;
+      opt.textContent = nomes[base.toLowerCase()] > 1 ? (base + ' (id ' + opt.value + ')') : base;
     });
   }
 
@@ -259,28 +304,23 @@
       var b = String(nome).trim().toLowerCase().replace(/\s+/g, ' ');
       if (a !== b) { alert('Nome não confere. Empresa não excluída.'); return; }
       if (typeof window.apiFetch !== 'function') { alert('API não disponível. Recarregue (Ctrl+F5).'); return; }
-
       var idExcluido = id;
       window.EMPRESA_ATUAL = null;
       await window.apiFetch('/api/empresas?id=' + encodeURIComponent(idExcluido), { method: 'DELETE' });
-
       function purgarLocal() {
         try {
-          if (window.EMPRESAS_DISPONIVEIS && Array.isArray(window.EMPRESAS_DISPONIVEIS)) {
+          if (window.EMPRESAS_DISPONIVEIS) {
             window.EMPRESAS_DISPONIVEIS = window.EMPRESAS_DISPONIVEIS.filter(function (e) {
               return e && String(e.id) !== String(idExcluido);
             });
           }
           var s = document.getElementById('seletorEmpresa');
-          if (s) {
-            Array.prototype.slice.call(s.options).forEach(function (opt) {
-              if (String(opt.value) === String(idExcluido)) opt.remove();
-            });
-          }
+          if (s) Array.prototype.slice.call(s.options).forEach(function (opt) {
+            if (String(opt.value) === String(idExcluido)) opt.remove();
+          });
         } catch (_) {}
       }
       purgarLocal();
-
       try {
         var lista = await window.apiFetch('/api/empresas');
         var empresas = ((lista && lista.empresas) || []).filter(function (e) {
@@ -292,19 +332,14 @@
         rotularSeletorEmpresas();
         purgarLocal();
       } catch (_) {}
-
-      try {
-        if (typeof window.refreshData === 'function') await window.refreshData();
-      } catch (e2) { console.warn(e2); }
+      try { if (typeof window.refreshData === 'function') await window.refreshData(); } catch (_) {}
       purgarLocal();
-      rotularSeletorEmpresas();
       alert('Empresa "' + nome + '" excluída.');
     } catch (err) {
       var msg = (err && err.message) || String(err);
       if (msg === 'nao_pode_excluir_ultima_empresa') msg = 'Não é possível excluir a última empresa.';
       else if (msg === 'existem_usuarios_vinculados') msg = 'Há usuários vinculados a esta empresa. Remova-os antes.';
       else if (msg === 'somente_admin') msg = 'Somente administrador pode excluir empresa.';
-      else if (msg === 'empresa_inexistente') msg = 'Empresa não encontrada.';
       alert('Erro ao excluir: ' + msg);
     }
   }
@@ -421,16 +456,7 @@
         }
       } catch (_) {}
       var r = orig();
-      try {
-        var sel = document.getElementById('seletorEmpresa');
-        if (sel) {
-          var sId = {};
-          Array.prototype.slice.call(sel.options).forEach(function (opt) {
-            if (sId[opt.value]) opt.remove(); else sId[opt.value] = true;
-          });
-        }
-        rotularSeletorEmpresas();
-      } catch (_) {}
+      try { rotularSeletorEmpresas(); } catch (_) {}
       return r;
     };
     window.renderSeletorEmpresa.__patchedDedup3 = true;
@@ -492,7 +518,7 @@
       el.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:99999;font-size:10px;opacity:0.55;background:#111;color:#9f9;padding:2px 6px;border-radius:4px;pointer-events:none;';
       document.body.appendChild(el);
     }
-    el.textContent = 'patch v9';
+    el.textContent = 'patch v10';
   }
   function boot() {
     showVersionBadge();
@@ -508,6 +534,7 @@
     patchRenderTable();
     injectFuncaoFields();
     injectRowCheckboxes();
+    patchHistoricoDelete();
     var modal = document.getElementById('cardModal');
     if (modal && !modal.__sigObs) {
       modal.__sigObs = true;
@@ -521,7 +548,7 @@
     if (tbody && !tbody.__batchObs) {
       tbody.__batchObs = true;
       new MutationObserver(function () {
-        injectFuncaoFields(); ensureExcluirEmpresaBtn(); ensureBatchToolbar(); injectRowCheckboxes();
+        injectFuncaoFields(); ensureExcluirEmpresaBtn(); ensureBatchToolbar(); injectRowCheckboxes(); patchHistoricoDelete();
       }).observe(tbody, { childList: true, subtree: true });
     }
   }
