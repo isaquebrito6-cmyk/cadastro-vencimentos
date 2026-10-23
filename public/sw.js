@@ -1,5 +1,5 @@
-const CACHE_NAME = 'vencimentos-cache-v24';
-const PATCH_URL = '/carteirinha-patch.js?v=24';
+const CACHE_NAME = 'vencimentos-cache-v25';
+const PATCH_URL = '/carteirinha-patch.js?v=25';
 const APP_SHELL = ['/', '/index.html', '/manifest.json', '/icon-512.png', '/icon-180.png'];
 const PATCH_TAG = '<script src="' + PATCH_URL + '"></script>';
 
@@ -49,7 +49,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  const ehPagina = event.request.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('.html');
+  const ehPagina = event.request.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('.html';
   if (ehPagina) {
     event.respondWith(
       fetch(event.request, { cache: 'no-store' })
