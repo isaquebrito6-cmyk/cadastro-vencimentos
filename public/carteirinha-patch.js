@@ -1,10 +1,75 @@
-/* Patch v14: chips so sob a foto (nao sobrepoe APTO); NR + numero */
+/* Patch v15: refinamento da carteirinha + cache do patch atualizado */
 (function () {
   var SIG_COLAB_KEY = 'cv_assinatura_colaborador';
   var SIG_RESP_KEY = 'cv_assinatura_responsavel';
   var sigColab = null, sigResp = null;
   try { sigColab = localStorage.getItem(SIG_COLAB_KEY) || null; } catch (_) {}
   try { sigResp = localStorage.getItem(SIG_RESP_KEY) || null; } catch (_) {}
+
+  function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function truncateText(ctx, text, maxWidth, suffix) {
+    if (!text) return '';
+    if (!ctx || !ctx.measureText) return String(text).slice(0, 32);
+    var value = String(text);
+    var ellipsis = suffix || '…';
+    if (ctx.measureText(value).width <= maxWidth) return value;
+    var candidate = value;
+    while (candidate.length > 1 && ctx.measureText(candidate + ellipsis).width > maxWidth) {
+      candidate = candidate.slice(0, -1);
+    }
+    return candidate + ellipsis;
+  }
+
+  function improveCanvasQuality(canvas) {
+    if (!canvas || typeof canvas.getContext !== 'function') return canvas;
+    var ctx = canvas.getContext('2d');
+    if (!ctx) return canvas;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+    return canvas;
+  }
+
+  function patchCardQuality() {
+    if (window.__cardQualityPatch) return;
+    if (typeof window.desenharFrente === 'function') {
+      var prevFrente = window.desenharFrente;
+      window.desenharFrente = async function (e, sigla, fotoURL, logoURL, equip) {
+        var canvas = await prevFrente.apply(this, arguments);
+        improveCanvasQuality(canvas);
+        try {
+          var ctx = canvas && canvas.getContext ? canvas.getContext('2d') : null;
+          if (ctx && e && e.nome) {
+            var nome = String(e.nome || '').trim();
+            if (nome) {
+              var maxW = 360;
+              ctx.save();
+              ctx.font = '700 24px Oswald, sans-serif';
+              var nomeOk = truncateText(ctx, nome, maxW, '…');
+              ctx.fillStyle = '#111';
+              ctx.textBaseline = 'alphabetic';
+              ctx.fillText(nomeOk, 40, 165);
+              ctx.restore();
+            }
+          }
+        } catch (_) {}
+        return canvas;
+      };
+    }
+    if (typeof window.desenharVerso === 'function') {
+      var prevVerso = window.desenharVerso;
+      window.desenharVerso = async function (e, sigla, logoURL) {
+        var canvas = await prevVerso.apply(this, arguments);
+        improveCanvasQuality(canvas);
+        return canvas;
+      };
+    }
+    window.__cardQualityPatch = true;
+  }
 
   function makePad(canvas) {
     var ctx = canvas.getContext('2d');
@@ -93,6 +158,7 @@
       st('Assinatura do responsável aplicada.'); redrawCarteira();
     };
   }
+
   function loadImg(dataUrl) {
     return new Promise(function (res) {
       if (!dataUrl) return res(null);
@@ -137,6 +203,7 @@
     };
     window.desenharFrente.__patchedFuncao = true;
   }
+
   function rotuloLocal(sigla) {
     var su = String(sigla || '').toUpperCase().trim();
     if (su === 'ASO' || /ASO/.test(su)) return { top: 'ASO', bottom: '' };
@@ -172,7 +239,6 @@
       var c = await prev(e, sigla, fotoURL, logoURL, equip);
       try {
         var ctx = c.getContext('2d');
-        // Chips SOMENTE sob a foto — não invadem o botão APTO à direita
         var fx = 40, fy = 196, fw = 240, fh = 320;
         var shrink = 110;
         var fotoBase = fy + fh;
@@ -525,10 +591,11 @@
       el.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:99999;font-size:10px;opacity:0.55;background:#111;color:#9f9;padding:2px 6px;border-radius:4px;pointer-events:none;';
       document.body.appendChild(el);
     }
-    el.textContent = 'patch v14';
+    el.textContent = 'patch v15';
   }
   function boot() {
     showVersionBadge();
+    patchCardQuality();
     ensureSigUI();
     patchDesenharVerso();
     patchDesenharFrente();
@@ -547,6 +614,7 @@
       modal.__sigObs = true;
       new MutationObserver(function () {
         if (modal.style.display === 'flex' || modal.style.display === 'block') {
+          patchCardQuality();
           ensureSigUI(); patchDesenharVerso(); patchDesenharFrente(); patchDesenharFrenteBadges();
         }
       }).observe(modal, { attributes: true, attributeFilter: ['style'] });
