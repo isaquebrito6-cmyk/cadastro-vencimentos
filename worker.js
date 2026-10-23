@@ -1086,7 +1086,6 @@ async function handleHistorico(request, env, url) {
     const { results } = await db.prepare('SELECT id FROM historico WHERE id = ? AND empresa_id = ? AND deletado_em IS NOT NULL').bind(id, empresaId).all();
     if (results.length === 0) return json({ error: 'nao_encontrado' }, 404);
     await db.prepare('UPDATE historico SET deletado_em = NULL WHERE id = ?').bind(id).run();
-    await regHist(db, request, session.username, `Restaurou um registro do histórico (#${id})`, 'seguranca', empresaId);
     return json({ ok: true });
   }
 
@@ -1115,7 +1114,6 @@ async function handleHistorico(request, env, url) {
     const { results } = await db.prepare('SELECT id FROM historico WHERE id = ? AND empresa_id = ? AND deletado_em IS NULL').bind(id, empresaId).all();
     if (results.length === 0) return json({ error: 'nao_encontrado' }, 404);
     await db.prepare('UPDATE historico SET deletado_em = ? WHERE id = ?').bind(agora, id).run();
-    await regHist(db, request, session.username, `Moveu um registro do histórico para a lixeira (#${id})`, 'seguranca', empresaId);
     return json({ ok: true });
   }
 

@@ -219,6 +219,11 @@
   .card-btn{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border:2px solid var(--line);border-radius:4px;font-size:13px;font-weight:600;color:var(--text);text-decoration:none;background:var(--bg-panel);}
   .card-btn i{width:12px;height:12px;border-radius:2px;display:inline-block;}
   .card-btn.off{opacity:.5;font-weight:400;cursor:not-allowed;}
+  .sel-todos{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);cursor:pointer;white-space:nowrap;}
+  .colab-check,.sel-todos input{width:18px;height:18px;accent-color:var(--amber,#f2b705);cursor:pointer;}
+  .colab-check{margin:0 10px 0 0;vertical-align:middle;}
+  .sel-bar{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;margin:0 0 10px;background:var(--bg-panel);border:1px solid var(--amber,#f2b705);border-radius:4px;font-size:13px;font-weight:600;}
+  .sel-bar .danger{color:var(--red,#e2483a);border-color:var(--red,#e2483a);}
   .assin-thumb{height:42px;max-width:160px;background:#fff;border-radius:3px;padding:2px;}
   #sigCanvas{width:100%;height:auto;background:#fff;border-radius:6px;touch-action:none;display:block;cursor:crosshair;}
   #printArea{display:none;}
@@ -382,6 +387,7 @@
     <div id="seletorEmpresaBox" style="margin-top:10px;display:none;align-items:center;gap:8px;flex-wrap:wrap;">
       <select id="seletorEmpresa" style="width:auto;font-size:12px;padding:5px 8px;"></select>
       <button class="btn ghost" id="novaEmpresaBtn" style="padding:4px 10px;font-size:12px;">+ Nova empresa</button>
+      <button class="btn ghost" id="excluirEmpresaBtn" style="padding:4px 10px;font-size:12px;color:var(--red,#e2483a);">✕ Excluir empresa</button>
     </div>
   </div>
   <div class="top-meta">
@@ -528,10 +534,16 @@
   <div class="section-head"><span class="idx">02</span><h2>Cadastro de Colaboradores</h2><span class="line"></span></div>
   <p class="section-sub">Adicione colaboradores, edite as datas de cada documento e o status é recalculado automaticamente pela data de hoje.</p>
 
+  <div id="selBar" class="sel-bar" style="display:none;">
+    <span id="selCount"></span>
+    <button class="btn ghost danger" id="selExcluir">🗑️ Excluir selecionados</button>
+    <button class="btn ghost" id="selLimpar">Limpar seleção</button>
+  </div>
   <div class="toolbar">
     <button class="btn primary" id="addBtn">＋ Novo colaborador</button>
     <button class="btn" id="importBtn">⬆ Importar lista</button>
     <button class="btn ghost" id="openColabTrashBtn">🗑️ Lixeira</button>
+    <label class="sel-todos" title="Selecionar todos os colaboradores que estão na lista"><input type="checkbox" id="selTodos"> Todos</label>
     <div class="search-box grow"><input id="searchInput" type="text" placeholder="Buscar colaborador... (atalho: /)"></div>
     <select id="statusFilter">
       <option value="">Status: todos</option>
@@ -689,6 +701,7 @@ let CFG = {avisoDias: 30, notifAtivado: false, empresa: 'Verzani e Sandrini'};
 let sortKey = 'nome';
 let sortDir = 1;
 let openEditId = null;
+let SEL = new Set();     // colaboradores marcados para excluir em lote
 let CAMPOS_EXTRA = {};   // colaborador_id -> siglas vazias que a pessoa pediu para preencher agora
 let CERTS = [];   // certificados anexados (só os dados; o arquivo é baixado quando a pessoa pede)
 
@@ -1003,13 +1016,17 @@ function renderHistorico(){
   if(souAdmin){
     list.querySelectorAll('[data-del-historico]').forEach(btn => {
       btn.addEventListener('click', async () => {
+        if(btn.disabled) return;
         if(!confirm('Mover este registro para a lixeira? Dá pra restaurar depois.')) return;
+        btn.disabled = true;
         try{
           await apiFetch('/api/historico?id=' + encodeURIComponent(btn.dataset.delHistorico), {method:'DELETE'});
           await refreshData();
           showToast('Registro apagado.');
         }catch(err){
-          showToast('Não foi possível apagar: ' + err.message, 'error');
+          btn.disabled = false;
+          if(err.message === 'nao_encontrado'){ await refreshData(); showToast('Esse registro já tinha sido apagado.'); return; }
+          showToast('Não foi possível apagar: ' + (err.message === 'somente_admin' ? 'só o administrador apaga histórico.' : err.message), 'error');
         }
       });
     });
@@ -1402,6 +1419,7 @@ function syncOpenEditToData(){
 
 function renderTable(){
   syncOpenEditToData();
+  atualizarBarraSelecao();
   let rows = sortRows(getFiltered());
   const docF = document.getElementById('docFilter').value;
   document.getElementById('rowCount').textContent = `${rows.length} de ${DATA.length} colaboradores`;
@@ -1523,7 +1541,7 @@ function rowHTML(e, docF){
   const certFlag = nCerts ? `<span class="flag" title="${nCerts} certificado(s) anexado(s)" style="text-transform:none;">📎 ${nCerts}</span>` : '';
 
   let html = `<tr>
-    <td class="nm-cell">${escapeHTML(e.nome)}${flag}${certFlag}</td>
+    <td class="nm-cell"><input type="checkbox" class="colab-check" data-sel="${escapeHTML(e.id)}" aria-label="Selecionar ${escapeHTML(e.nome)}" ${SEL.has(e.id) ? 'checked' : ''}>${escapeHTML(e.nome)}${flag}${certFlag}</td>
     <td><span class="status-pill" style="color:${sm.cor};background:${sm.bg}">${sm.label}${diasStatusTxt}</span></td>
     <td><div class="chips-cell">${chips}</div></td>
     <td style="font-family:'IBM Plex Mono',monospace;font-size:12px">${proxTxt}</td>
@@ -2379,6 +2397,56 @@ function cardAjustaFonte(ctx, texto, peso, tamMax, tamMin, maxW, familia){
   return t;
 }
 
+
+// Rótulo curto do ícone de cada documento: "NR" em cima e o número embaixo (ASO e LOTO têm rótulo próprio).
+function rotuloIcone(sigla){
+  const su = String(sigla || '').toUpperCase().trim();
+  if(/\bASO\b/.test(su)) return {top: 'ASO', bottom: ''};
+  if(/LOTO|BLOQUEIO/.test(su)) return {top: 'NR', bottom: '10/12'};
+  const m = su.match(/NR\s*-?\s*0*(\d{1,2})(?:\s*[\/.\-]\s*0*(\d{1,2}))?(.*)$/);
+  if(m){
+    const num = m[1] + (m[2] ? '/' + m[2] : '');
+    let suf = /\bSUP/.test(su) ? 'SUP' : (m[3] || '').replace(/\bOP\b\.?/g, ' ').replace(/[^A-Z0-9 ]/g, ' ').trim().split(/\s+/)[0] || '';
+    suf = suf.slice(0, 4);
+    return suf ? {top: 'NR ' + num, bottom: suf} : {top: 'NR', bottom: num};
+  }
+  return {top: su.slice(0, 5), bottom: ''};
+}
+// Linha de ícones (um por documento com data), em faixa própria: nunca encosta na foto nem no selo.
+function desenharIcones(ctx, e, sigla, y, h){
+  const itens = ['ASO', ...DOC_ORDER.filter(s => s !== 'ASO')].filter(s => e.docs[s]);
+  if(!itens.length) return;
+  const x0 = 40, areaW = CARD_W - 80;
+  let cw = 64, gap = 8;
+  if(itens.length * (cw + gap) - gap > areaW){        // muitos documentos: encolhe os ícones para caberem todos
+    gap = 6; cw = Math.max(46, Math.floor((areaW - gap * (itens.length - 1)) / itens.length));
+  }
+  const porLinha = Math.floor((areaW + gap) / (cw + gap));
+  const mostrar = itens.length > porLinha ? itens.slice(0, porLinha - 1) : itens;
+  const ocultos = itens.length - mostrar.length;
+  mostrar.forEach((s, i) => {
+    const x = x0 + i * (cw + gap), st = statusFor(e.docs[s]), cs = corSegurancaDe(s), rot = rotuloIcone(s);
+    ctx.fillStyle = cs.hex; cardRound(ctx, x, y, cw, h, 9); ctx.fill();
+    ctx.lineWidth = s === sigla ? 6 : 4;
+    ctx.strokeStyle = st === 'vencido' ? COR_STATUS.vencido : (st === 'a_vencer' ? '#B26A00' : (s === sigla ? '#111' : 'rgba(0,0,0,.45)'));
+    cardRound(ctx, x + 2, y + 2, cw - 4, h - 4, 8); ctx.stroke();
+    ctx.fillStyle = cs.texto; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    if(rot.bottom){
+      cardAjustaFonte(ctx, rot.top, 600, 15, 10, cw - 14, FONTE_TXT); ctx.fillText(rot.top, x + cw/2, y + h*0.30);
+      cardAjustaFonte(ctx, rot.bottom, 700, 24, 12, cw - 12, FONTE_CARD); ctx.fillText(rot.bottom, x + cw/2, y + h*0.68);
+    } else {
+      cardAjustaFonte(ctx, rot.top, 700, 26, 12, cw - 12, FONTE_CARD); ctx.fillText(rot.top, x + cw/2, y + h/2 + 1);
+    }
+  });
+  if(ocultos > 0){
+    const x = x0 + mostrar.length * (cw + gap);
+    ctx.fillStyle = '#E9ECEF'; cardRound(ctx, x, y, cw, h, 9); ctx.fill();
+    ctx.fillStyle = '#333'; ctx.font = `700 22px ${FONTE_CARD}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('+' + ocultos, x + cw/2, y + h/2 + 1);
+  }
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+}
+
 async function desenharFrente(e, sigla, fotoURL, logoURL){
   try{ await document.fonts.load("700 40px 'Oswald'"); await document.fonts.load("400 22px 'Inter'"); }catch(_){}
   const cor = corSegurancaDe(sigla), emp = nomeEmpresaCarteira();
@@ -2403,7 +2471,14 @@ async function desenharFrente(e, sigla, fotoURL, logoURL){
   cardAjustaFonte(ctx, titularCarteira(sigla), 700, 54, 28, wT, FONTE_CARD); ctx.fillText(titularCarteira(sigla), xT, 114);
   const fx = 40, fy = 196, fw = 240, fh = 320;
   ctx.fillStyle = '#E9ECEF'; ctx.fillRect(fx, fy, fw, fh);
-  if(fotoImg){ ctx.drawImage(fotoImg, fx, fy, fw, fh); }
+  if(fotoImg){
+    // recorta no formato 3:4 (rosto costuma ficar na parte de cima) em vez de esticar a imagem
+    const alvo = fw / fh, orig = fotoImg.width / fotoImg.height;
+    let sw = fotoImg.width, sh = fotoImg.height, sx = 0, sy = 0;
+    if(orig > alvo){ sw = fotoImg.height * alvo; sx = (fotoImg.width - sw) / 2; }
+    else { sh = fotoImg.width / alvo; sy = (fotoImg.height - sh) * 0.15; }
+    ctx.drawImage(fotoImg, sx, sy, sw, sh, fx, fy, fw, fh);
+  }
   else{
     ctx.fillStyle = '#B8C0C8'; ctx.beginPath(); ctx.arc(fx+fw/2, fy+120, 56, 0, Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.ellipse(fx+fw/2, fy+260, 96, 80, 0, Math.PI, 0); ctx.fill();
@@ -2475,9 +2550,7 @@ async function desenharFrente(e, sigla, fotoURL, logoURL){
   else { ctx.moveTo(x0 + 5, cyI - 9); ctx.lineTo(x0 + 25, cyI + 9); ctx.moveTo(x0 + 25, cyI - 9); ctx.lineTo(x0 + 5, cyI + 9); }
   ctx.stroke();
   ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = cor.hex; ctx.fillRect(40, 556, 34, 34);
-  ctx.fillStyle = '#333'; ctx.font = `500 21px ${FONTE_TXT}`;
-  ctx.fillText(`Cor de segurança (NR-26): ${cor.nome} — ${cor.uso}`, 88, 580);
+  desenharIcones(ctx, e, sigla, 534, 62);
   cardZebra(ctx, 0, CARD_H - 14, CARD_W, 14);
   return c;
 }
@@ -2493,7 +2566,15 @@ async function desenharVerso(e, sigla, logoURL, assinColabURL, assinRespURL){
   cardZebra(ctx, 0, 96, CARD_W, 12);
   cardLogo(ctx, logoImg, 24, 12, 72, 72, emp);
   ctx.fillStyle = cor.texto; ctx.textBaseline = 'alphabetic';
-  cardAjustaFonte(ctx, emp, 700, 38, 20, CARD_W - 140 - 28, FONTE_CARD); ctx.fillText(emp, 116, 62);
+  // cor de segurança (NR-26) no canto direito da faixa; o nome da empresa ocupa o resto
+  ctx.font = `600 19px ${FONTE_TXT}`;
+  const txtCor = `NR-26 · ${cor.nome.toUpperCase()}`;
+  const wCor = Math.ceil(ctx.measureText(txtCor).width);
+  ctx.textAlign = 'right'; ctx.fillText(txtCor, CARD_W - 28, 40);
+  ctx.font = `500 15px ${FONTE_TXT}`; const usoTxt = cor.uso.length > 34 ? cor.uso.slice(0, 33) + '…' : cor.uso;
+  ctx.fillText(usoTxt, CARD_W - 28, 64); ctx.textAlign = 'left';
+  const wUso = Math.ceil(ctx.measureText(usoTxt).width);
+  cardAjustaFonte(ctx, emp, 700, 38, 18, CARD_W - 116 - 28 - Math.max(wCor, wUso) - 24, FONTE_CARD); ctx.fillText(emp, 116, 62);
   ctx.fillStyle = '#111'; ctx.font = `700 26px ${FONTE_CARD}`; ctx.fillText('VENCIMENTOS', 40, 150);
   let itens = ['ASO', ...DOC_ORDER.filter(s => s !== 'ASO')].filter(s => s === 'ASO' || e.docs[s]);
   const colunas = itens.length > 14 ? 3 : 2;
@@ -2670,6 +2751,74 @@ function atualizarAssinRespStatus(){
   const rm = document.getElementById('cardAssinRespRemover'); if(rm) rm.style.display = tem ? '' : 'none';
 }
 function recarregarCarteiraAberta(){ if(CARTEIRA_ATUAL && document.getElementById('cardModal').style.display === 'flex') abrirCarteira(CARTEIRA_ATUAL.colabId, CARTEIRA_ATUAL.sigla); }
+
+
+// ---- seleção e exclusão em lote ----
+function atualizarBarraSelecao(){
+  const ids = new Set(DATA.map(e => e.id));
+  SEL.forEach(id => { if(!ids.has(id)) SEL.delete(id); });          // quem sumiu da lista sai da seleção
+  const bar = document.getElementById('selBar');
+  if(!bar) return;
+  bar.style.display = SEL.size ? 'flex' : 'none';
+  document.getElementById('selCount').textContent = `${SEL.size} selecionado(s)`;
+  const todos = document.getElementById('selTodos');
+  if(todos){
+    const vis = getFiltered();
+    const marcados = vis.filter(e => SEL.has(e.id)).length;
+    todos.checked = vis.length > 0 && marcados === vis.length;
+    todos.indeterminate = marcados > 0 && marcados < vis.length;
+  }
+}
+let EXCLUINDO_LOTE = false;
+async function excluirSelecionados(){
+  if(EXCLUINDO_LOTE || !SEL.size) return;
+  const ids = Array.from(SEL);
+  if(!confirm(`Mover ${ids.length} colaborador(es) para a Lixeira?\n\nDá para desfazer logo depois ou restaurar pela Lixeira.`)) return;
+  EXCLUINDO_LOTE = true;
+  const feitos = [];
+  let falhas = 0;
+  try{
+    for(const id of ids){
+      try{ await apiFetch('/api/colaborador?id=' + encodeURIComponent(id), {method:'DELETE'}); feitos.push(id); }
+      catch(err){ if(err.message === 'nao_encontrado') feitos.push(id); else falhas++; }
+    }
+  } finally { EXCLUINDO_LOTE = false; }
+  feitos.forEach(id => SEL.delete(id));
+  await refreshData();
+  showToast(`${feitos.length} colaborador(es) na Lixeira` + (falhas ? `, ${falhas} falha(s)` : '') + '.', falhas ? 'error' : null, feitos.length ? {
+    label: 'Desfazer',
+    onClick: async () => {
+      let ok = 0;
+      for(const id of feitos){ try{ await apiFetch('/api/colaborador', {method:'PUT', body: JSON.stringify({id})}); ok++; }catch(_){} }
+      await refreshData();
+      showToast(`${ok} colaborador(es) restaurado(s).`);
+    }
+  } : undefined);
+}
+
+// ---- excluir empresa (só administrador) ----
+async function excluirEmpresaAtual(){
+  const sel = document.getElementById('seletorEmpresa');
+  const id = parseInt(sel && sel.value, 10);
+  if(!id) return;
+  const nome = ((EMPRESAS_DISPONIVEIS.find(e => e.id === id) || {}).nome) || ('#' + id);
+  if(!confirm(`Excluir a empresa "${nome}"?\n\nIsso apaga TODOS os colaboradores, documentos, certificados, fotos e o histórico dela. Não dá para desfazer.`)) return;
+  const conf = prompt(`Para confirmar, digite o nome da empresa:\n\n${nome}`);
+  if(conf === null) return;
+  const norm = t => String(t).trim().toLowerCase().replace(/\s+/g, ' ');
+  if(norm(conf) !== norm(nome)){ showToast('O nome não confere. Nada foi excluído.', 'error'); return; }
+  try{
+    await apiFetch('/api/empresas?id=' + id, {method:'DELETE'});
+    EMPRESAS_DISPONIVEIS = EMPRESAS_DISPONIVEIS.filter(e => e.id !== id);
+    if(EMPRESA_ATUAL && EMPRESA_ATUAL.id === id) EMPRESA_ATUAL = null;     // o servidor escolhe a primeira empresa que sobrou
+    openEditId = null; SEL.clear();
+    await refreshData();
+    showToast(`Empresa "${nome}" excluída.`);
+  }catch(err){
+    const msgs = {nao_pode_excluir_ultima_empresa: 'não é possível excluir a última empresa.', existem_usuarios_vinculados: 'há usuários vinculados a ela. Remova-os antes (Gerenciar usuários).', somente_admin: 'só o administrador pode excluir empresas.'};
+    showToast('Não foi possível excluir: ' + (msgs[err.message] || err.message), 'error');
+  }
+}
 
 let CARTEIRA_ATUAL = null;
 async function abrirCarteira(colabId, sigla){
@@ -3174,7 +3323,7 @@ async function iniciarApp(){
     try{
       await apiFetch('/api/historico?limpar=tudo', {method:'DELETE'});
       await refreshData();
-      showToast('Histórico movido para a lixeira.');
+      showToast('Histórico movido para a lixeira. Fica só 1 registro dessa ação, por segurança.');
     }catch(err){
       showToast('Não foi possível mover: ' + err.message, 'error');
     }
@@ -3256,6 +3405,19 @@ async function iniciarApp(){
     inp.value = '';
     if(box && arq) enviarFoto(box.dataset.fotoColab, arq, box);
   });
+  tbodyCert.addEventListener('change', ev => {
+    const ck = ev.target.closest('input.colab-check');
+    if(!ck) return;
+    if(ck.checked) SEL.add(ck.dataset.sel); else SEL.delete(ck.dataset.sel);
+    atualizarBarraSelecao();
+  });
+  document.getElementById('selTodos').addEventListener('change', ev => {
+    getFiltered().forEach(e => { if(ev.target.checked) SEL.add(e.id); else SEL.delete(e.id); });
+    renderTable();
+  });
+  document.getElementById('selExcluir').addEventListener('click', excluirSelecionados);
+  document.getElementById('selLimpar').addEventListener('click', () => { SEL.clear(); renderTable(); });
+  document.getElementById('excluirEmpresaBtn').addEventListener('click', excluirEmpresaAtual);
   document.getElementById('cardFechar').addEventListener('click', () => { document.getElementById('cardModal').style.display = 'none'; });
   iniciarPadAssinatura();
   document.getElementById('cardAssinResp').addEventListener('click', ev => { ev.preventDefault(); abrirAssinatura(chaveAssinResp(), 'Assinatura do responsável', recarregarCarteiraAberta); });
