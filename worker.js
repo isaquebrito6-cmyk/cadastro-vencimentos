@@ -1,5 +1,8 @@
-import { handleLogin, handleEmpresas, handleFoto } from './lib/handlers_a.js';
-import { handleData, handleColaborador, handleHistorico } from './lib/handlers_b.js';
+import { handleLogin, handleFoto } from './lib/handlers_a2.js';
+import { handleEmpresas } from './lib/handlers_a3.js';
+import { handleData } from './lib/handlers_data.js';
+import { handleColaborador } from './lib/handlers_colab.js';
+import { handleHistorico } from './lib/handlers_hist.js';
 import { json } from './lib/auth.js';
 
 export default {
