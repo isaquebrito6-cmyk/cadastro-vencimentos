@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vencimentos-cache-v19';
+const CACHE_NAME = 'vencimentos-cache-v20';
 const APP_SHELL = ['/', '/index.html', '/manifest.json', '/icon-512.png', '/icon-180.png', '/carteirinha-patch.js'];
 const PATCH_TAG = '<script src="/carteirinha-patch.js"></script>';
 
