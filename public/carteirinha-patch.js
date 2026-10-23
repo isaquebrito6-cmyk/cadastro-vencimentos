@@ -1,4 +1,4 @@
-/* Patch v6: excluir empresa (prompt com nome), chips iguais ao cadastro, exclusao em lote */
+/* Patch v7: exclusao empresa estavel, lote via renderTable, chips, assinaturas */
 (function () {
   var SIG_COLAB_KEY = 'cv_assinatura_colaborador';
   var SIG_RESP_KEY = 'cv_assinatura_responsavel';
@@ -67,7 +67,6 @@
       '<button type="button" class="btn primary" id="sigUsarResp" style="padding:4px 8px;font-size:11px;">Usar</button></div></div></div>' +
       '<div id="sigStatus" style="font-size:11px;color:var(--text-dim,#9aa0a8);margin-top:8px;"></div>';
     printBtn.parentElement.parentElement.insertBefore(box, printBtn.parentElement);
-
     var canvasColab = document.getElementById('sigPadColab');
     var canvasResp = document.getElementById('sigPadResp');
     var ctxColab = makePad(canvasColab);
@@ -81,7 +80,6 @@
     restore(canvasColab, ctxColab, sigColab);
     restore(canvasResp, ctxResp, sigResp);
     function setStatus(t) { var el = document.getElementById('sigStatus'); if (el) el.textContent = t; }
-
     document.getElementById('sigLimparColab').onclick = function () {
       ctxColab.clearRect(0, 0, canvasColab.width, canvasColab.height);
       sigColab = null; try { localStorage.removeItem(SIG_COLAB_KEY); } catch (_) {}
@@ -167,7 +165,6 @@
   }
 
   function corStatusLocal(st) {
-    if (window.STATUS_META && window.STATUS_META[st]) return window.STATUS_META[st].cor;
     if (st === 'vencido') return '#e2483a';
     if (st === 'a_vencer') return '#f2954a';
     if (st === 'valido') return '#3fae5c';
@@ -176,9 +173,14 @@
 
   function corDocLocal(sigla) {
     try {
-      if (window.DOC_META && window.DOC_META[sigla] && window.DOC_META[sigla].cor) return window.DOC_META[sigla].cor;
       if (window.DOC_TYPES && window.DOC_TYPES[sigla] && window.DOC_TYPES[sigla].cor) return window.DOC_TYPES[sigla].cor;
     } catch (_) {}
+    // cores tipicas
+    var s = String(sigla).toUpperCase();
+    if (s === 'ASO') return '#3fae5c';
+    if (s.indexOf('35') >= 0) return '#4fa3e3';
+    if (s.indexOf('33') >= 0) return '#f2b705';
+    if (s.indexOf('20') >= 0 || s.indexOf('LOTO') >= 0) return '#c94f4f';
     return '#c9a24f';
   }
 
@@ -189,16 +191,16 @@
       var c = await prev(e, sigla, fotoURL, logoURL, equip);
       try {
         var ctx = c.getContext('2d');
-        var order = (window.DOC_ORDER && window.DOC_ORDER.length) ? window.DOC_ORDER.slice() : Object.keys((e && e.docs) || {});
+        var docs = (e && e.docs) || {};
+        var order = Object.keys(docs);
         var itens = [];
         order.forEach(function (s) {
-          if (!e.docs || !e.docs[s]) return;
-          var st = typeof window.statusFor === 'function' ? window.statusFor(e.docs[s]) : 'valido';
+          if (!docs[s]) return;
+          var st = typeof window.statusFor === 'function' ? window.statusFor(docs[s]) : 'valido';
           if (st === 'sem_registro') return;
           itens.push({ sigla: s, st: st });
         });
         if (!itens.length) return c;
-
         var x = 28, y = c.height - 56, gap = 6, maxX = c.width - 28;
         itens.forEach(function (it) {
           var rot = rotuloLocal(it.sigla);
@@ -206,7 +208,6 @@
           var border = corStatusLocal(it.st);
           var cw = 36, ch = 32;
           if (x + cw > maxX) return;
-
           ctx.fillStyle = bg;
           ctx.strokeStyle = border;
           ctx.lineWidth = 3;
@@ -214,19 +215,18 @@
           ctx.rect(x, y, cw, ch);
           ctx.fill();
           ctx.stroke();
-
           ctx.fillStyle = '#15171a';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           if (rot.bottom) {
-            ctx.font = '700 9px "IBM Plex Mono", monospace';
+            ctx.font = '700 9px monospace';
             ctx.globalAlpha = 0.85;
             ctx.fillText(rot.top, x + cw / 2, y + 10);
             ctx.globalAlpha = 1;
-            ctx.font = '800 12px "IBM Plex Mono", monospace';
+            ctx.font = '800 12px monospace';
             ctx.fillText(rot.bottom, x + cw / 2, y + 22);
           } else {
-            ctx.font = '800 12px "IBM Plex Mono", monospace';
+            ctx.font = '800 12px monospace';
             ctx.fillText(rot.top, x + cw / 2, y + ch / 2 + 1);
           }
           ctx.textAlign = 'left';
@@ -238,113 +238,66 @@
     window.desenharFrente.__patchedBadges2 = true;
   }
 
+  async function excluirEmpresaSelecionada() {
+    try {
+      var sel = document.getElementById('seletorEmpresa');
+      var id = null, nome = '';
+      if (sel && sel.value) {
+        id = parseInt(sel.value, 10);
+        nome = (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].textContent) || '';
+        nome = String(nome).trim();
+      }
+      if (!id || Number.isNaN(id)) {
+        if (window.EMPRESA_ATUAL && window.EMPRESA_ATUAL.id) {
+          id = window.EMPRESA_ATUAL.id;
+          nome = window.EMPRESA_ATUAL.nome || ('#' + id);
+        }
+      }
+      if (!id) { alert('Selecione uma empresa no seletor.'); return; }
+      if (!nome) nome = '#' + id;
+      if (!confirm('Excluir a empresa "' + nome + '" (id ' + id + ')?\n\nApaga colaboradores e documentos desta empresa.')) return;
+      var conf = prompt('Confirme o nome da empresa (já preenchido — pode copiar/colar ou só OK):', nome);
+      if (conf === null) return;
+      var a = String(conf).trim().toLowerCase().replace(/\s+/g, ' ');
+      var b = String(nome).trim().toLowerCase().replace(/\s+/g, ' ');
+      if (a !== b) { alert('Nome não confere. Empresa não excluída.'); return; }
+      if (typeof window.apiFetch !== 'function') { alert('API não disponível. Recarregue (Ctrl+F5).'); return; }
+      await window.apiFetch('/api/empresas?id=' + encodeURIComponent(id), { method: 'DELETE' });
+      alert('Empresa "' + nome + '" excluída.');
+      window.EMPRESA_ATUAL = null;
+      if (typeof window.refreshData === 'function') await window.refreshData();
+      else location.reload();
+    } catch (err) {
+      var msg = (err && err.message) || String(err);
+      if (msg === 'nao_pode_excluir_ultima_empresa') msg = 'Não é possível excluir a última empresa.';
+      else if (msg === 'existem_usuarios_vinculados') msg = 'Há usuários vinculados a esta empresa. Remova-os antes.';
+      else if (msg === 'somente_admin') msg = 'Somente administrador pode excluir empresa.';
+      else if (msg === 'empresa_inexistente') msg = 'Empresa não encontrada.';
+      alert('Erro ao excluir: ' + msg);
+    }
+  }
+
   function ensureExcluirEmpresaBtn() {
     var novaBtn = document.getElementById('novaEmpresaBtn');
     if (!novaBtn) return;
-    var old = document.getElementById('excluirEmpresaBtn');
-    if (old) old.remove();
-    var btn = document.createElement('button');
-    btn.type = 'button'; btn.className = 'btn ghost'; btn.id = 'excluirEmpresaBtn';
-    btn.style.cssText = 'padding:4px 10px;font-size:12px;color:var(--red,#e2483a);';
-    btn.textContent = '✕ Excluir empresa';
-    novaBtn.parentNode.insertBefore(btn, novaBtn.nextSibling);
-
-    btn.addEventListener('click', async function (ev) {
-      ev.preventDefault();
-      try {
-        var sel = document.getElementById('seletorEmpresa');
-        var id = null, nome = '';
-        if (sel && sel.value) {
-          id = parseInt(sel.value, 10);
-          nome = (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].textContent) || '';
-          nome = String(nome).trim();
-        }
-        if (!id || Number.isNaN(id)) {
-          if (window.EMPRESA_ATUAL && window.EMPRESA_ATUAL.id) {
-            id = window.EMPRESA_ATUAL.id;
-            nome = window.EMPRESA_ATUAL.nome || ('#' + id);
-          }
-        }
-        if (!id) {
-          if (typeof window.showToast === 'function') window.showToast('Selecione uma empresa no seletor.', 'error');
-          else alert('Selecione uma empresa no seletor.');
-          return;
-        }
-        if (!nome) nome = '#' + id;
-
-        if (!confirm('Excluir a empresa "' + nome + '" (id ' + id + ')?\n\nApaga colaboradores e documentos desta empresa.')) return;
-
-        var conf = prompt('Confirme o nome da empresa (já preenchido — pode copiar/colar ou só OK):', nome);
-        if (conf === null) return;
-        var a = String(conf).trim().toLowerCase().replace(/\s+/g, ' ');
-        var b = String(nome).trim().toLowerCase().replace(/\s+/g, ' ');
-        if (a !== b) {
-          if (typeof window.showToast === 'function') window.showToast('Nome não confere. Empresa não excluída.', 'error');
-          else alert('Nome não confere.');
-          return;
-        }
-
-        await window.apiFetch('/api/empresas?id=' + encodeURIComponent(id), { method: 'DELETE' });
-        if (typeof window.showToast === 'function') window.showToast('Empresa "' + nome + '" excluída.');
-        else alert('Empresa excluída.');
-        window.EMPRESA_ATUAL = null;
-        if (typeof window.refreshData === 'function') await window.refreshData();
-        else location.reload();
-      } catch (err) {
-        var msg = (err && err.message) || String(err);
-        if (msg === 'nao_pode_excluir_ultima_empresa') msg = 'Não é possível excluir a última empresa.';
-        else if (msg === 'existem_usuarios_vinculados') msg = 'Há usuários vinculados a esta empresa. Remova-os antes.';
-        else if (msg === 'somente_admin') msg = 'Somente administrador pode excluir empresa.';
-        else if (msg === 'empresa_inexistente') msg = 'Empresa não encontrada.';
-        if (typeof window.showToast === 'function') window.showToast('Erro ao excluir: ' + msg, 'error');
-        else alert('Erro ao excluir: ' + msg);
-      }
-    });
-  }
-
-  function patchRenderSeletorEmpresa() {
-    if (typeof window.renderSeletorEmpresa !== 'function' || window.renderSeletorEmpresa.__patchedDedup2) return;
-    var orig = window.renderSeletorEmpresa;
-    window.renderSeletorEmpresa = function () {
-      try {
-        if (window.EMPRESAS_DISPONIVEIS && Array.isArray(window.EMPRESAS_DISPONIVEIS)) {
-          var seenId = {}, seenNome = {}, atualId = window.EMPRESA_ATUAL && window.EMPRESA_ATUAL.id;
-          var out = [];
-          window.EMPRESAS_DISPONIVEIS.forEach(function (e) {
-            if (!e || e.id == null) return;
-            if (seenId[e.id]) return;
-            var nome = String(e.nome || '').trim().toLowerCase().replace(/\s+/g, ' ');
-            if (nome && seenNome[nome] != null) {
-              var prev = out[seenNome[nome]];
-              if (e.id === atualId || (prev && prev.id !== atualId && e.id < prev.id)) {
-                out[seenNome[nome]] = e; seenId[e.id] = true;
-              }
-              return;
-            }
-            seenId[e.id] = true;
-            if (nome) seenNome[nome] = out.length;
-            out.push(e);
-          });
-          window.EMPRESAS_DISPONIVEIS = out;
-        }
-      } catch (_) {}
-      var r = orig();
-      try {
-        var sel = document.getElementById('seletorEmpresa');
-        if (sel) {
-          var sId = {}, sNome = {};
-          Array.prototype.slice.call(sel.options).forEach(function (opt) {
-            var id = opt.value;
-            var nome = String(opt.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
-            if (sId[id] || (nome && sNome[nome])) { opt.remove(); return; }
-            sId[id] = true; if (nome) sNome[nome] = true;
-          });
-        }
-      } catch (_) {}
-      return r;
-    };
-    window.renderSeletorEmpresa.__patchedDedup2 = true;
-    try { window.renderSeletorEmpresa(); } catch (_) {}
+    var btn = document.getElementById('excluirEmpresaBtn');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn ghost';
+      btn.id = 'excluirEmpresaBtn';
+      btn.style.cssText = 'padding:4px 10px;font-size:12px;color:var(--red,#e2483a);';
+      btn.textContent = '✕ Excluir empresa';
+      novaBtn.parentNode.insertBefore(btn, novaBtn.nextSibling);
+    }
+    if (!btn.__bound) {
+      btn.__bound = true;
+      btn.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        excluirEmpresaSelecionada();
+      });
+    }
   }
 
   function ensureBatchToolbar() {
@@ -372,10 +325,7 @@
       document.querySelectorAll('#tableBody .colab-check:checked').forEach(function (c) {
         if (c.dataset.colabId) ids.push(c.dataset.colabId);
       });
-      if (!ids.length) {
-        if (typeof window.showToast === 'function') window.showToast('Selecione ao menos um colaborador.', 'error');
-        return;
-      }
+      if (!ids.length) { alert('Selecione ao menos um colaborador.'); return; }
       if (!confirm('Mover ' + ids.length + ' colaborador(es) para a lixeira?')) return;
       var ok = 0, fail = 0;
       for (var i = 0; i < ids.length; i++) {
@@ -385,9 +335,7 @@
         } catch (_) { fail++; }
       }
       if (typeof window.refreshData === 'function') await window.refreshData();
-      if (typeof window.showToast === 'function') {
-        window.showToast(ok + ' movido(s) para a lixeira' + (fail ? ', ' + fail + ' falha(s)' : '') + '.');
-      }
+      alert(ok + ' movido(s) para a lixeira' + (fail ? ', ' + fail + ' falha(s)' : '') + '.');
       var all = document.getElementById('colabSelectAll');
       if (all) all.checked = false;
       atualizarBatchCount();
@@ -430,23 +378,63 @@
     atualizarBatchCount();
   }
 
+  function patchRenderTable() {
+    if (typeof window.renderTable !== 'function' || window.renderTable.__patchedBatch) return;
+    var orig = window.renderTable;
+    window.renderTable = function () {
+      var r = orig.apply(this, arguments);
+      try { ensureBatchToolbar(); injectRowCheckboxes(); } catch (_) {}
+      return r;
+    };
+    window.renderTable.__patchedBatch = true;
+  }
+
+  function patchRenderSeletorEmpresa() {
+    if (typeof window.renderSeletorEmpresa !== 'function' || window.renderSeletorEmpresa.__patchedDedup2) return;
+    var orig = window.renderSeletorEmpresa;
+    window.renderSeletorEmpresa = function () {
+      try {
+        if (window.EMPRESAS_DISPONIVEIS && Array.isArray(window.EMPRESAS_DISPONIVEIS)) {
+          var seenId = {}, seenNome = {}, out = [];
+          window.EMPRESAS_DISPONIVEIS.forEach(function (e) {
+            if (!e || e.id == null || seenId[e.id]) return;
+            var nome = String(e.nome || '').trim().toLowerCase().replace(/\s+/g, ' ');
+            if (nome && seenNome[nome] != null) return;
+            seenId[e.id] = true;
+            if (nome) seenNome[nome] = out.length;
+            out.push(e);
+          });
+          window.EMPRESAS_DISPONIVEIS = out;
+        }
+      } catch (_) {}
+      var r = orig();
+      try {
+        var sel = document.getElementById('seletorEmpresa');
+        if (sel) {
+          var sId = {}, sNome = {};
+          Array.prototype.slice.call(sel.options).forEach(function (opt) {
+            var id = opt.value;
+            var nome = String(opt.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
+            if (sId[id] || (nome && sNome[nome])) { opt.remove(); return; }
+            sId[id] = true; if (nome) sNome[nome] = true;
+          });
+        }
+      } catch (_) {}
+      return r;
+    };
+    window.renderSeletorEmpresa.__patchedDedup2 = true;
+    try { window.renderSeletorEmpresa(); } catch (_) {}
+  }
+
   function injectFuncaoFields() {
     document.querySelectorAll('tr.edit-row').forEach(function (row) {
       if (row.querySelector('[id^="fld-funcao-"]')) return;
       var nomeInput = row.querySelector('input[id^="fld-nome-"]');
       if (!nomeInput) return;
       var id = nomeInput.id.replace('fld-nome-', '');
-      var funcaoAtual = '';
-      try {
-        if (window.DATA) {
-          var col = window.DATA.find(function (x) { return x.id === id; });
-          if (col && col.funcao) funcaoAtual = col.funcao;
-        }
-      } catch (_) {}
       var field = document.createElement('div');
       field.className = 'field wide';
-      field.innerHTML = '<label>Função / cargo</label><input type="text" id="fld-funcao-' + id + '" value="' +
-        String(funcaoAtual).replace(/"/g, '"') + '" placeholder="ex.: Operador" maxlength="120">';
+      field.innerHTML = '<label>Função / cargo</label><input type="text" id="fld-funcao-' + id + '" value="" placeholder="ex.: Operador" maxlength="120">';
       var nomeField = nomeInput.closest('.field');
       if (nomeField && nomeField.parentNode) nomeField.parentNode.insertBefore(field, nomeField.nextSibling);
     });
@@ -489,7 +477,18 @@
     window.enviarLogo.__patched = true;
   }
 
+  function showVersionBadge() {
+    if (document.getElementById('patch-version-badge')) return;
+    var el = document.createElement('div');
+    el.id = 'patch-version-badge';
+    el.textContent = 'patch v7';
+    el.title = 'Atualizações ativas';
+    el.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:99999;font-size:10px;opacity:0.55;background:#111;color:#9f9;padding:2px 6px;border-radius:4px;pointer-events:none;';
+    document.body.appendChild(el);
+  }
+
   function boot() {
+    showVersionBadge();
     ensureSigUI();
     patchDesenharVerso();
     patchDesenharFrente();
@@ -499,6 +498,7 @@
     patchRenderSeletorEmpresa();
     ensureExcluirEmpresaBtn();
     ensureBatchToolbar();
+    patchRenderTable();
     injectFuncaoFields();
     injectRowCheckboxes();
 
@@ -511,22 +511,22 @@
         }
       }).observe(modal, { attributes: true, attributeFilter: ['style'] });
     }
-    var tbody = document.getElementById('tableBody') || document.body;
-    if (tbody && !tbody.__funcaoObs) {
-      tbody.__funcaoObs = true;
+    var tbody = document.getElementById('tableBody');
+    if (tbody && !tbody.__batchObs) {
+      tbody.__batchObs = true;
       new MutationObserver(function () {
         injectFuncaoFields();
         ensureExcluirEmpresaBtn();
         ensureBatchToolbar();
         injectRowCheckboxes();
-        patchRenderSeletorEmpresa();
       }).observe(tbody, { childList: true, subtree: true });
     }
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
-  setTimeout(boot, 800);
-  setTimeout(boot, 2500);
-  setTimeout(boot, 5000);
+  setTimeout(boot, 500);
+  setTimeout(boot, 1500);
+  setTimeout(boot, 3000);
+  setTimeout(boot, 6000);
 })();
