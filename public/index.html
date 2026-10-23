@@ -183,23 +183,44 @@
     header.top{padding:22px 18px;} main{padding:22px 18px 60px;}
     .top-meta{text-align:left;}
   }
-  /* No celular a tabela (760 px) rola para o lado; a ficha de edição fica "colada" na largura da tela, sem precisar rolar. */
-  @media(max-width:780px){
-    .edit-row td{padding:16px 12px 20px;}
-    .edit-row td > *{position:sticky;left:12px;width:calc(100vw - 66px);box-sizing:border-box;}
+  /* No celular cada colaborador vira um cartão (nome + ações no topo, status, documentos e próximo vencimento),
+     sem rolar para o lado: os botões ✎ e ✕ ficam sempre à vista. */
+  @media screen and (max-width:780px){
+    .table-wrap table{min-width:0;}
+    #mainTable, #mainTable tbody{display:block;}
+    #mainTable thead tr{display:flex;flex-wrap:wrap;gap:6px;padding:10px;}
+    #mainTable thead th{border:1px solid var(--line);border-radius:3px;padding:6px 10px;}
+    #mainTable thead th.no-sort{display:none;}
+    #mainTable tbody tr:not(.edit-row){display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;padding:12px;border-bottom:1px solid var(--line);align-items:center;}
+    #mainTable tbody tr:not(.edit-row) > td{display:block;padding:0;border:none;min-width:0;}
+    #mainTable tbody tr:not(.edit-row) > td:nth-child(1){grid-column:1;grid-row:1;overflow-wrap:anywhere;}
+    #mainTable tbody tr:not(.edit-row) > td:nth-child(5){grid-column:2;grid-row:1;}
+    #mainTable tbody tr:not(.edit-row) > td:nth-child(2),
+    #mainTable tbody tr:not(.edit-row) > td:nth-child(3),
+    #mainTable tbody tr:not(.edit-row) > td:nth-child(4){grid-column:1 / -1;}
+    #mainTable tbody tr.edit-row{display:block;}
+    #mainTable tbody tr.edit-row > td{display:block;padding:14px 12px 20px;}
     .edit-grid{grid-template-columns:1fr 1fr;}
     .cert-nome{max-width:100%;}
   }
+  /* Histórico: em linhas empilhadas, o botão ✕ nunca sai da tela. */
+  .hist-item{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:0 10px;align-items:start;padding:8px 4px;border-bottom:1px solid var(--line);font-size:13px;}
+  .hist-item:last-child{border-bottom:none;}
+  .hist-meta{display:flex;flex-wrap:wrap;gap:2px 10px;align-items:baseline;font-size:11px;}
+  .hist-acao{color:var(--text);overflow-wrap:anywhere;font-size:13px;margin-top:2px;}
+  .hist-item .icon-btn{align-self:center;}
 
   .foto-linha{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
   .foto-thumb{width:75px;height:100px;object-fit:cover;border-radius:4px;border:2px solid var(--line);background:#1b1f24;}
   .foto-vazia{display:flex;align-items:center;justify-content:center;font-size:34px;color:var(--text-dim);}
   .foto-acoes{display:flex;flex-direction:column;gap:6px;align-items:flex-start;}
-  .foto-btn{cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
+  .foto-btn{cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-decoration:none;}
   .card-lista{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
   .card-btn{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border:2px solid var(--line);border-radius:4px;font-size:13px;font-weight:600;color:var(--text);text-decoration:none;background:var(--bg-panel);}
   .card-btn i{width:12px;height:12px;border-radius:2px;display:inline-block;}
   .card-btn.off{opacity:.5;font-weight:400;cursor:not-allowed;}
+  .assin-thumb{height:42px;max-width:160px;background:#fff;border-radius:3px;padding:2px;}
+  #sigCanvas{width:100%;height:auto;background:#fff;border-radius:6px;touch-action:none;display:block;cursor:crosshair;}
   #printArea{display:none;}
   @media print{
     body.printing-card > *:not(#printArea){display:none !important;}
@@ -370,19 +391,32 @@
   </div>
 </header>
 
+<div id="sigModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:260;align-items:center;justify-content:center;padding:14px;">
+  <div style="width:100%;max-width:560px;background:var(--bg-panel);border:1px solid var(--line);border-radius:6px;padding:16px;">
+    <h2 id="sigTitulo" style="font-family:'Oswald',sans-serif;font-size:16px;font-weight:600;margin:0 0 8px;">✍ Assinatura digital</h2>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">Assine com o dedo ou o mouse dentro do quadro. A assinatura é guardada no cadastro e impressa na carteirinha.</div>
+    <canvas id="sigCanvas" width="800" height="280"></canvas>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+      <button class="btn primary" id="sigSalvar">Salvar assinatura</button>
+      <button class="btn ghost" id="sigLimpar">Limpar</button>
+      <button class="btn ghost" id="sigCancelar" style="margin-left:auto;">Cancelar</button>
+    </div>
+  </div>
+</div>
 <div id="cardModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:250;align-items:flex-start;justify-content:center;padding:14px;overflow-y:auto;">
   <div style="width:100%;max-width:580px;background:var(--bg-panel);border:1px solid var(--line);border-radius:6px;padding:18px;">
     <h2 style="font-family:'Oswald',sans-serif;font-size:17px;font-weight:600;margin:0 0 4px;">🪪 Carteirinha de treinamento</h2>
     <div id="cardAviso" style="font-size:12px;color:var(--amber, #f2b705);margin:0 0 10px;min-height:16px;"></div>
-    <div id="cardEquipBox" class="field" style="display:none;margin-bottom:10px;">
-      <label for="cardEquip">Máquina / equipamento autorizado (opcional)</label>
-      <input type="text" id="cardEquip" maxlength="60" placeholder="ex.: Retroescavadeira, Empilhadeira elétrica">
-    </div>
     <div id="cardPreview"></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:4px 0 12px;padding:10px;border:1px dashed var(--line);border-radius:4px;">
       <label class="btn ghost" style="cursor:pointer;">🏢 Logo da empresa<input type="file" accept="image/*" id="cardLogoInput" hidden></label>
       <a href="#" class="clear-date" id="cardLogoRemover" style="display:none;">remover logo</a>
       <span id="cardLogoStatus" style="font-size:11px;color:var(--text-dim);"></span>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px;padding:10px;border:1px dashed var(--line);border-radius:4px;">
+      <a href="#" class="btn ghost" id="cardAssinResp">✍ Assinatura do responsável</a>
+      <a href="#" class="clear-date" id="cardAssinRespRemover" style="display:none;">remover</a>
+      <span id="cardAssinRespStatus" style="font-size:11px;color:var(--text-dim);"></span>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
       <button class="btn primary" id="cardImprimir">🖨 Imprimir</button>
@@ -397,7 +431,7 @@
   <div id="importCard" style="width:100%;max-width:720px;max-height:94vh;overflow-y:auto;background:var(--bg-panel);border:1px solid var(--line);border-radius:6px;padding:22px 22px 18px;">
     <h2 style="font-family:'Oswald',sans-serif;font-size:17px;font-weight:600;margin:0 0 6px;">⬆ Importar colaboradores em lote</h2>
     <p style="font-size:12px;color:var(--text-dim);margin:0 0 12px;line-height:1.55;">
-      Envie uma planilha (<b>.xlsx</b>, <b>.csv</b> ou <b>.txt</b>) ou cole o conteúdo (pode copiar direto do Excel). Só o <b>Nome</b> é obrigatório. As demais colunas são opcionais: <b>Observação</b> e uma coluna para cada documento (ASO, NR-35, NR-12…) com a data no formato <b>dd/mm/aaaa</b>. Se a planilha trouxer uma NR que ainda não existe no sistema, o campo é criado automaticamente. Célula de data vazia nunca apaga uma data que já esteja cadastrada.
+      Envie uma planilha (<b>.xlsx</b>, <b>.csv</b> ou <b>.txt</b>) ou cole o conteúdo (pode copiar direto do Excel). Só o <b>Nome</b> é obrigatório. As demais colunas são opcionais: <b>Cargo</b>, <b>Tipo de máquina</b>, <b>Observação</b> e uma coluna para cada documento (ASO, NR-35, NR-12…) com a data no formato <b>dd/mm/aaaa</b>. Se a planilha trouxer uma NR que ainda não existe no sistema, o campo é criado automaticamente. Célula de data vazia nunca apaga uma data que já esteja cadastrada.
       A planilha do botão <i>Exportar CSV</i> pode ser importada de volta.
     </p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
@@ -557,7 +591,7 @@
         <option value="dados">Só alterações de dados</option>
         <option value="seguranca">Só eventos de segurança</option>
       </select>
-      <div style="display:flex;gap:8px;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn" id="exportHistCsvBtn">⬇ Exportar (CSV)</button>
         <button class="btn ghost" id="clearHistBtn" style="display:none;color:var(--red);">🗑 Mover tudo p/ lixeira</button>
         <button class="btn ghost" id="openTrashBtn" style="display:none;">🗑️ Lixeira</button>
@@ -876,6 +910,7 @@ async function loadInitial(){
   const data = await apiFetch('/api/data');
   CERTS = data.certificados || [];
   FOTOS = {}; (data.fotos || []).forEach(f => { FOTOS[f.colaborador_id] = f.atualizado_em; });
+  EXTRAS = {}; (data.extras || []).forEach(x => { EXTRAS[x.colaborador_id] = {cargo: x.cargo || '', maquina: x.maquina || ''}; });
   DATA = data.colaboradores.map(e => ({
     id: e.id, nome: e.nome, notas: e.notas || [], docs: e.docs || {}
   }));
@@ -904,6 +939,7 @@ async function refreshData(){
   const data = await apiFetch('/api/data');
   CERTS = data.certificados || [];
   FOTOS = {}; (data.fotos || []).forEach(f => { FOTOS[f.colaborador_id] = f.atualizado_em; });
+  EXTRAS = {}; (data.extras || []).forEach(x => { EXTRAS[x.colaborador_id] = {cargo: x.cargo || '', maquina: x.maquina || ''}; });
   DATA = data.colaboradores.map(e => ({ id: e.id, nome: e.nome, notas: e.notas || [], docs: e.docs || {} }));
   DOC_TYPES = {};
   data.docTypes.forEach(dt => { DOC_TYPES[dt.sigla] = {cor: dt.cor, nome: dt.nome, desc: dt.descricao}; });
@@ -951,13 +987,17 @@ function renderHistorico(){
     const ehSeguranca = h.tipo === 'seguranca';
     const icone = ehSeguranca ? '🔒' : '📝';
     return `
-    <div class="alert-item" style="align-items:flex-start;">
-      <span title="${ehSeguranca ? 'Evento de segurança' : 'Alteração de dados'}" style="flex:none;width:18px;">${icone}</span>
-      <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-dim);flex:none;width:110px;">${formatarDataHora(h.ts)}</span>
-      <span style="font-weight:600;color:var(--amber);flex:none;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(h.quem || '—')}</span>
-      <span style="flex:1;color:var(--text);">${escapeHTML(h.acao)}</span>
-      ${h.ip ? `<span style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--text-dim);flex:none;">${escapeHTML(h.ip)}</span>` : ''}
-      ${souAdmin ? `<button class="icon-btn del" data-del-historico="${h.id}" title="Apagar este registro" style="flex:none;">✕</button>` : ''}
+    <div class="hist-item">
+      <span title="${ehSeguranca ? 'Evento de segurança' : 'Alteração de dados'}">${icone}</span>
+      <div>
+        <div class="hist-meta">
+          <span style="font-family:'IBM Plex Mono',monospace;color:var(--text-dim);">${formatarDataHora(h.ts)}</span>
+          <span style="font-weight:600;color:var(--amber);">${escapeHTML(h.quem || '—')}</span>
+          ${h.ip ? `<span style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--text-dim);">${escapeHTML(h.ip)}</span>` : ''}
+        </div>
+        <div class="hist-acao">${escapeHTML(h.acao)}</div>
+      </div>
+      ${souAdmin ? `<button class="icon-btn del" data-del-historico="${h.id}" title="Apagar este registro" aria-label="Apagar este registro">✕</button>` : '<span></span>'}
     </div>`;
   }).join('');
   if(souAdmin){
@@ -1352,6 +1392,8 @@ function syncOpenEditToData(){
     const notasVal = notasEl.value.trim();
     e.notas = notasVal ? notasVal.split(',').map(s => s.trim()).filter(Boolean) : [];
   }
+  const cgEl = document.getElementById(`fld-cargo-${openEditId}`), mqEl = document.getElementById(`fld-maquina-${openEditId}`);
+  if(cgEl || mqEl) EXTRAS[openEditId] = {cargo: cgEl ? cgEl.value : ((EXTRAS[openEditId] || {}).cargo || ''), maquina: mqEl ? mqEl.value : ((EXTRAS[openEditId] || {}).maquina || '')};
   DOC_ORDER.forEach(sigla => {
     const dEl = document.getElementById(`fld-doc-${openEditId}-${sigla}`);
     if(dEl) e.docs[sigla] = dEl.value || null;
@@ -1502,6 +1544,15 @@ function rowHTML(e, docF){
           <label>Observação (ex.: Afastado)</label>
           <input type="text" id="fld-notas-${e.id}" value="${escapeHTML((e.notas||[]).join(', '))}" placeholder="opcional">
         </div>
+        <div class="field">
+          <label>Cargo / função</label>
+          <input type="text" id="fld-cargo-${e.id}" maxlength="80" value="${escapeHTML((EXTRAS[e.id] || {}).cargo || '')}" placeholder="ex.: Operador de retroescavadeira">
+        </div>
+        <div class="field">
+          <label>Tipo de máquina / equipamento</label>
+          <input type="text" id="fld-maquina-${e.id}" maxlength="80" list="listaMaquinas" value="${escapeHTML((EXTRAS[e.id] || {}).maquina || '')}" placeholder="ex.: Retroescavadeira">
+          <datalist id="listaMaquinas"><option value="Empilhadeira"><option value="Plataforma elevatória"><option value="Retroescavadeira"><option value="Carregadeira"><option value="Escavadeira"><option value="Guindaste / Munck"><option value="Trator"><option value="Rebocador"><option value="Caminhão"></datalist>
+        </div>
         ${fotoBoxHTML(e)}
         ${DOC_ORDER.filter(sigla => e.docs[sigla] || (CAMPOS_EXTRA[e.id] || []).includes(sigla)).map(sigla => `
         <div class="field">
@@ -1552,7 +1603,7 @@ async function saveEdit(id){
     docs[sigla] = campo ? (campo.value || null) : (e.docs[sigla] || null);   // campo oculto (vazio) continua vazio
   });
   try{
-    await apiFetch('/api/colaborador', {method:'POST', body: JSON.stringify({id: eraNovo ? null : id, nome, notas, docs})});
+    await apiFetch('/api/colaborador', {method:'POST', body: JSON.stringify({id: eraNovo ? null : id, nome, notas, docs, cargo: (document.getElementById(`fld-cargo-${id}`) || {}).value, maquina: (document.getElementById(`fld-maquina-${id}`) || {}).value})});
     delete CAMPOS_EXTRA[id];
     openEditId = null;
     await refreshData();
@@ -1764,6 +1815,8 @@ async function excluirCertificado(id){
 const LIMITE_IMPORTACAO = 2000;
 const NOME_HEADERS = ['nome','colaborador','colaboradores','funcionario','funcionarios','empregado','nomecompleto','trabalhador'];
 const NOTA_HEADERS = ['observacao','observacoes','obs','nota','notas'];
+const CARGO_HEADERS = ['cargo','funcao','cargofuncao','funcaocargo','ocupacao','cargodocolaborador'];
+const MAQUINA_HEADERS = ['tipodemaquina','tipomaquina','maquina','maquinas','equipamento','equipamentos','tipodeequipamento','maquinaequipamento','maquinaoperada'];
 let IMPORT_ITENS = [];        // linhas já interpretadas e simuladas (o que a prévia mostra)
 let IMPORT_XLSX = null;       // linhas lidas de um .xlsx (quando o arquivo escolhido é Excel)
 let ULTIMA_IMPORTACAO = null; // dados para desfazer; valem enquanto a página estiver aberta
@@ -1861,7 +1914,7 @@ function identidadeNR(texto){
 }
 
 function mapearColunas(cabecalho){
-  const mapa = {nome:-1, notas:-1, docs:{}, ignoradas:[], novas:[]};
+  const mapa = {nome:-1, notas:-1, cargo:-1, maquina:-1, docs:{}, ignoradas:[], novas:[]};
   const porChave = {};
   const registrar = (texto, sigla) => {
     const k = normChave(texto);
@@ -1880,6 +1933,8 @@ function mapearColunas(cabecalho){
     if(!k) return;
     if(mapa.nome < 0 && NOME_HEADERS.includes(k)){ mapa.nome = idx; return; }
     if(mapa.notas < 0 && NOTA_HEADERS.includes(k)){ mapa.notas = idx; return; }
+    if(mapa.cargo < 0 && CARGO_HEADERS.includes(k)){ mapa.cargo = idx; return; }
+    if(mapa.maquina < 0 && MAQUINA_HEADERS.includes(k)){ mapa.maquina = idx; return; }
     if(k.startsWith('status') || k.endsWith('status')) return;
     let sigla = porChave[k] || porChave[identidadeNR(h)];
     if(!sigla){
@@ -1917,9 +1972,10 @@ function tabelaParaRegistros(linhas){
   let dados = linhas;
   if(mapa){
     dados = linhas.slice(1);
+    if(mapa.cargo >= 0 || mapa.maquina >= 0) out.avisos.push('Colunas lidas: ' + [mapa.cargo >= 0 ? 'Cargo' : '', mapa.maquina >= 0 ? 'Tipo de máquina' : ''].filter(Boolean).join(' e ') + '.');
     if(mapa.novas && mapa.novas.length) out.avisos.push('Serão criados automaticamente os campos de documento: ' + mapa.novas.join(', ') + '.');
     if(mapa.ignoradas.length) out.avisos.push('Colunas não reconhecidas (ignoradas): ' + mapa.ignoradas.join(', ') + '.');
-    if(Object.keys(mapa.docs).length === 0 && mapa.notas < 0 && linhas[0].cels.filter(c => String(c).trim()).length > 1){
+    if(Object.keys(mapa.docs).length === 0 && mapa.notas < 0 && mapa.cargo < 0 && mapa.maquina < 0 && linhas[0].cels.filter(c => String(c).trim()).length > 1){
       out.avisos.push('Nenhuma coluna de documento reconhecida. Use no cabeçalho a sigla do documento (ex.: ASO, NR-35).');
     }
   } else if(linhas.some(l => l.cels.filter(c => String(c).trim()).length > 1)){
@@ -1928,8 +1984,10 @@ function tabelaParaRegistros(linhas){
   dados.forEach(l => {
     const nomeBruto = mapa ? l.cels[mapa.nome] : l.cels[0];
     const nome = String(nomeBruto == null ? '' : nomeBruto).replace(/\s+/g, ' ').trim().slice(0, 200);
-    const reg = {linha: l.linha, nome, notas: [], docs: {}, erros: []};
+    const reg = {linha: l.linha, nome, notas: [], docs: {}, erros: [], cargo: '', maquina: ''};
     if(mapa){
+      const txt = i => (i >= 0 && l.cels[i] != null) ? String(l.cels[i]).replace(/\s+/g, ' ').trim().slice(0, 80) : '';
+      reg.cargo = txt(mapa.cargo); reg.maquina = txt(mapa.maquina);
       if(mapa.notas >= 0){
         const n = String(l.cels[mapa.notas] == null ? '' : l.cels[mapa.notas]).trim();
         if(n) reg.notas = n.split(',').map(x => x.trim()).filter(Boolean).slice(0, 50);
@@ -1952,7 +2010,7 @@ function tabelaParaRegistros(linhas){
 // Espelha o que o servidor vai fazer, para a prévia bater com o resultado.
 function simularImportacao(registros, modo){
   const mapa = new Map();
-  DATA.forEach(e => mapa.set(chaveNome(e.nome), {docs: Object.assign({}, e.docs), notas: (e.notas || []).slice(), existente: true}));
+  DATA.forEach(e => mapa.set(chaveNome(e.nome), {docs: Object.assign({}, e.docs), notas: (e.notas || []).slice(), existente: true, extra: Object.assign({cargo:'', maquina:''}, EXTRAS[e.id] || {})}));
   const c = {novos:0, atualizar:0, iguais:0, pulados:0, mesclados:0, erros:0};
   const alterados = new Set();
   const itens = registros.map(r => {
@@ -1961,14 +2019,17 @@ function simularImportacao(registros, modo){
     const chave = chaveNome(r.nome);
     const atual = mapa.get(chave);
     if(!atual){
-      mapa.set(chave, {docs: Object.assign({}, r.docs), notas: r.notas.slice(), existente: false});
+      mapa.set(chave, {docs: Object.assign({}, r.docs), notas: r.notas.slice(), existente: false, extra: {cargo: r.cargo || '', maquina: r.maquina || ''}});
       item.situacao = 'novo'; c.novos++;
       return item;
     }
     if(modo !== 'atualizar'){ item.situacao = 'pular'; c.pulados++; return item; }
     const mudancas = Object.keys(r.docs).filter(s => r.docs[s] !== atual.docs[s]);
     const notasMudam = r.notas.length > 0 && JSON.stringify(r.notas) !== JSON.stringify(atual.notas);
-    if(!mudancas.length && !notasMudam){ item.situacao = 'igual'; c.iguais++; return item; }
+    const exAtual = atual.extra || {cargo:'', maquina:''};
+    const cargoMuda = !!r.cargo && r.cargo !== exAtual.cargo, maquinaMuda = !!r.maquina && r.maquina !== exAtual.maquina;
+    if(cargoMuda || maquinaMuda) atual.extra = {cargo: r.cargo || exAtual.cargo, maquina: r.maquina || exAtual.maquina};
+    if(!mudancas.length && !notasMudam && !cargoMuda && !maquinaMuda){ item.situacao = 'igual'; c.iguais++; return item; }
     mudancas.forEach(s => { atual.docs[s] = r.docs[s]; });
     if(notasMudam) atual.notas = r.notas.slice();
     if(atual.existente){ item.situacao = 'atualizar'; alterados.add(chave); }
@@ -2038,7 +2099,7 @@ function renderPreviaImport(){
     const MAX = 60;
     const linhasHTML = itens.slice(0, MAX).map(i => {
       const s = SITUACAO_IMPORT[i.situacao];
-      const datas = Object.keys(i.docs).map(sg => `${escapeHTML(sg)} ${fmtDate(i.docs[sg])}`).join(' · ');
+      const datas = [i.cargo ? 'Cargo: ' + escapeHTML(i.cargo) : '', i.maquina ? 'Máquina: ' + escapeHTML(i.maquina) : '', ...Object.keys(i.docs).map(sg => `${escapeHTML(sg)} ${fmtDate(i.docs[sg])}`)].filter(Boolean).join(' · ');
       return `<tr style="border-top:1px solid var(--line);">
         <td style="padding:6px 8px;font-size:12px;">${escapeHTML(i.nome || '—')}</td>
         <td style="padding:6px 8px;font-size:11px;font-weight:600;white-space:nowrap;color:${s.cor};">${s.txt}</td>
@@ -2092,7 +2153,7 @@ async function confirmarImport(){
   btn.textContent = 'Importando…';
   try{
     const r = await apiFetch('/api/colaborador-lote', {method:'POST', body: JSON.stringify({
-      modo, registros: itens.map(i => ({nome: i.nome, notas: i.notas, docs: i.docs})),
+      modo, registros: itens.map(i => ({nome: i.nome, notas: i.notas, docs: i.docs, cargo: i.cargo, maquina: i.maquina})),
     })});
     ULTIMA_IMPORTACAO = (r.desfazer && (r.desfazer.criados.length || r.desfazer.atualizados.length)) ? r.desfazer : null;
     await refreshData();
@@ -2112,6 +2173,7 @@ async function confirmarImport(){
 }
 
 // ================= Foto + carteirinha de treinamento =================
+let EXTRAS = {};     // colaborador_id -> {cargo, maquina}
 let FOTOS = {};      // colaborador_id -> atualizado_em
 let FOTO_URLS = {};  // colaborador_id -> {v, url}  (blob já baixado)
 
@@ -2168,6 +2230,8 @@ function fotoBoxHTML(e){
       <div class="foto-acoes">
         <label class="btn ghost foto-btn">📷 ${tem ? 'Trocar foto' : 'Enviar foto'}<input type="file" accept="image/*" data-foto-input hidden></label>
         ${tem ? `<a href="#" class="clear-date" data-foto-del="${escapeHTML(e.id)}">remover foto</a>` : ''}
+        <a href="#" class="btn ghost foto-btn" data-assin-abrir="assin:${escapeHTML(e.id)}" data-assin-titulo="Assinatura de ${escapeHTML(e.nome)}">✍ ${FOTOS['assin:' + e.id] ? 'Refazer assinatura' : 'Assinatura digital'}</a>
+        ${FOTOS['assin:' + e.id] ? `<span style="display:flex;gap:8px;align-items:center;"><img class="assin-thumb" data-foto-img="assin:${escapeHTML(e.id)}" alt="Assinatura"><a href="#" class="clear-date" data-assin-del="assin:${escapeHTML(e.id)}">remover assinatura</a></span>` : ''}
         <div class="foto-status" style="font-size:11px;color:var(--text-dim);"></div>
       </div>
     </div>
@@ -2315,7 +2379,7 @@ function cardAjustaFonte(ctx, texto, peso, tamMax, tamMin, maxW, familia){
   return t;
 }
 
-async function desenharFrente(e, sigla, fotoURL, logoURL, equip){
+async function desenharFrente(e, sigla, fotoURL, logoURL){
   try{ await document.fonts.load("700 40px 'Oswald'"); await document.fonts.load("400 22px 'Inter'"); }catch(_){}
   const cor = corSegurancaDe(sigla), emp = nomeEmpresaCarteira();
   const apt = aptidaoDe(e, sigla);
@@ -2346,42 +2410,71 @@ async function desenharFrente(e, sigla, fotoURL, logoURL, equip){
     ctx.fillStyle = '#6B747C'; ctx.font = `500 20px ${FONTE_TXT}`; ctx.textAlign = 'center'; ctx.fillText('SEM FOTO', fx+fw/2, fy+fh-14); ctx.textAlign = 'left';
   }
   ctx.lineWidth = 8; ctx.strokeStyle = cor.hex; ctx.strokeRect(fx-4, fy-4, fw+8, fh+8);
+  // Coluna de dados: posições calculadas em sequência. Se faltar espaço, os intervalos e as fontes encolhem;
+  // nada é desenhado por cima de outra coisa.
   const x = 320, maxW = CARD_W - x - 40;
-  ctx.fillStyle = '#6B747C'; ctx.font = `600 19px ${FONTE_TXT}`; ctx.fillText('NOME', x, 208);
-  ctx.fillStyle = '#111';
+  const extra = EXTRAS[e.id] || {};
+  const cargo = String(extra.cargo || '').trim().toUpperCase();
+  const operador = ehOperadorMaquina(sigla) || ehOperadorEquip(sigla);
+  const maquina = operador ? String(extra.maquina || '').trim() : '';
   const nomeUp = e.nome.toUpperCase();
-  cardAjustaFonte(ctx, nomeUp, 700, 40, 30, maxW, FONTE_CARD);          // tenta caber em uma linha
-  let linhas = [nomeUp], passo = 0;
-  if(ctx.measureText(nomeUp).width > maxW){                             // nome muito longo: duas linhas menores
-    ctx.font = `700 30px ${FONTE_CARD}`;
-    linhas = cardQuebra(ctx, nomeUp, maxW, 2); passo = 32;
+  cardAjustaFonte(ctx, nomeUp, 700, 40, 30, maxW, FONTE_CARD);
+  let linhas = [nomeUp], tamNome = 40, passoNome = 0;
+  if(ctx.measureText(nomeUp).width > maxW){
+    ctx.font = `700 30px ${FONTE_CARD}`; tamNome = 30; passoNome = 32;
+    linhas = cardQuebra(ctx, nomeUp, maxW, 2);
+  } else { tamNome = parseInt(ctx.font.match(/(\d+)px/)[1], 10); }
+  const BADGE_H = 48, BADGE_Y = 516 - BADGE_H, LIMITE = BADGE_Y - 12;
+  let gap = 40, tamData = linhas.length > 1 ? 40 : 46, yLabelValid = 0, yTrein = 0, yCargo = 0, yNome0 = 0;
+  const calcula = () => {
+    yNome0 = 206 + (linhas.length > 1 ? 34 : 40);
+    let y = yNome0 + (linhas.length - 1) * passoNome;
+    yCargo = cargo ? y + 28 : 0; if(cargo) y = yCargo;
+    yTrein = y + gap;                    // rótulo "TREINAMENTO"
+    yLabelValid = yTrein + 32 + gap;     // rótulo "VALIDADE ..."
+    return yLabelValid + tamData;        // linha de base das datas
+  };
+  while(calcula() > LIMITE && gap > 24) gap -= 2;
+  while(calcula() > LIMITE && tamData > 32) tamData -= 2;
+  ctx.fillStyle = '#6B747C'; ctx.font = `600 19px ${FONTE_TXT}`; ctx.fillText('NOME', x, 206);
+  ctx.fillStyle = '#111'; ctx.font = `700 ${tamNome}px ${FONTE_CARD}`;
+  linhas.forEach((l, i) => ctx.fillText(l, x, yNome0 + i*passoNome));
+  if(cargo){
+    ctx.fillStyle = '#333'; cardAjustaFonte(ctx, 'CARGO: ' + cargo, 600, 24, 14, maxW, FONTE_CARD);
+    ctx.fillText('CARGO: ' + cargo, x, yCargo);
   }
-  linhas.forEach((l, i) => ctx.fillText(l, x, 250 + i*passo));
-  let y = 250 + (linhas.length - 1) * passo + 42;
-  ctx.fillStyle = '#6B747C'; ctx.font = `600 19px ${FONTE_TXT}`; ctx.fillText(equip ? 'TREINAMENTO · MÁQUINA/EQUIPAMENTO AUTORIZADO' : 'TREINAMENTO', x, y);
-  ctx.fillStyle = '#111'; ctx.font = `600 28px ${FONTE_CARD}`;
+  ctx.fillStyle = '#6B747C'; ctx.font = `600 19px ${FONTE_TXT}`;
+  ctx.fillText(maquina ? 'TREINAMENTO · TIPO DE MÁQUINA' : 'TREINAMENTO', x, yTrein);
+  ctx.fillStyle = '#111';
   const nomeTrein = (DOC_TYPES[sigla] && DOC_TYPES[sigla].nome) || sigla;
-  const textoTrein = (nomeTrein && nomeTrein !== sigla ? nomeTrein : sigla) + (equip ? '  ·  ' + equip : '');
-  cardAjustaFonte(ctx, textoTrein, 600, 28, 18, maxW, FONTE_CARD);
-  ctx.fillText(textoTrein, x, y + 34);
-  y += 34 + 40;
+  const textoTrein = (nomeTrein && nomeTrein !== sigla ? nomeTrein : sigla) + (maquina ? '  ·  ' + maquina : '');
+  cardAjustaFonte(ctx, textoTrein, 600, 28, 16, maxW, FONTE_CARD);
+  ctx.fillText(textoTrein, x, yTrein + 32);
   const colW = maxW / 2;
   [['VALIDADE ' + sigla, e.docs[sigla]], ['VALIDADE ASO', e.docs['ASO']]].forEach(([rot, data], i) => {
     const cx = x + i*colW;
     ctx.fillStyle = '#6B747C'; ctx.font = `600 19px ${FONTE_TXT}`;
-    const rotAj = cardQuebra(ctx, rot, colW - 10, 1)[0]; ctx.fillText(rotAj, cx, y);
-    const st = statusFor(data);
-    ctx.fillStyle = st === 'vencido' ? COR_STATUS.vencido : '#111';
-    cardAjustaFonte(ctx, data ? fmtDate(data) : 'NÃO INFORMADO', 700, passo ? 40 : 46, 24, colW - 12, FONTE_CARD);
-    ctx.fillText(data ? fmtDate(data) : 'NÃO INFORMADO', cx, y + 46);
+    let r = rot; while(r.length > 4 && ctx.measureText(r).width > colW - 14) r = r.slice(0, -2);
+    ctx.fillText(r === rot ? r : r.trim() + '…', cx, yLabelValid);
+    const txt = data ? fmtDate(data) : 'NÃO INFORMADO';
+    ctx.fillStyle = statusFor(data) === 'vencido' ? COR_STATUS.vencido : '#111';
+    cardAjustaFonte(ctx, txt, 700, tamData, 20, colW - 14, FONTE_CARD);
+    ctx.fillText(txt, cx, yLabelValid + tamData);
   });
-  const by = 452, bh = 64;
-  ctx.fillStyle = apt.apto ? COR_STATUS.valido : COR_STATUS.vencido; cardRound(ctx, x, by, maxW, bh, 12); ctx.fill();
-  ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  const txtApto = apt.apto ? '✔  APTO PARA ATIVIDADE' : '✖  NÃO APTO — ' + apt.motivo;
-  cardAjustaFonte(ctx, txtApto, 700, 36, 20, maxW - 30, FONTE_CARD);
-  ctx.fillText(txtApto, x + maxW/2, by + bh/2 + 2);
-  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  // selo de aptidão, com ícone desenhado (não depende de fonte do aparelho)
+  ctx.fillStyle = apt.apto ? COR_STATUS.valido : COR_STATUS.vencido; cardRound(ctx, x, BADGE_Y, maxW, BADGE_H, 12); ctx.fill();
+  const txtApto = apt.apto ? 'APTO PARA ATIVIDADE' : 'NÃO APTO — ' + apt.motivo;
+  ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle';
+  cardAjustaFonte(ctx, txtApto, 700, 32, 16, maxW - 90, FONTE_CARD);
+  const wTxt = ctx.measureText(txtApto).width, wIco = 30, gapIco = 14;
+  const x0 = x + (maxW - (wIco + gapIco + wTxt)) / 2, cyI = BADGE_Y + BADGE_H/2;
+  ctx.fillText(txtApto, x0 + wIco + gapIco, cyI + 2);
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  if(apt.apto){ ctx.moveTo(x0 + 4, cyI); ctx.lineTo(x0 + 12, cyI + 9); ctx.lineTo(x0 + 27, cyI - 9); }
+  else { ctx.moveTo(x0 + 5, cyI - 9); ctx.lineTo(x0 + 25, cyI + 9); ctx.moveTo(x0 + 25, cyI - 9); ctx.lineTo(x0 + 5, cyI + 9); }
+  ctx.stroke();
+  ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = cor.hex; ctx.fillRect(40, 556, 34, 34);
   ctx.fillStyle = '#333'; ctx.font = `500 21px ${FONTE_TXT}`;
   ctx.fillText(`Cor de segurança (NR-26): ${cor.nome} — ${cor.uso}`, 88, 580);
@@ -2389,10 +2482,11 @@ async function desenharFrente(e, sigla, fotoURL, logoURL, equip){
   return c;
 }
 
-async function desenharVerso(e, sigla, logoURL){
+async function desenharVerso(e, sigla, logoURL, assinColabURL, assinRespURL){
   try{ await document.fonts.load("700 40px 'Oswald'"); await document.fonts.load("400 22px 'Inter'"); }catch(_){}
   const cor = corSegurancaDe(sigla), emp = nomeEmpresaCarteira();
   const logoImg = await carregarImg(logoURL);
+  const assinColab = await carregarImg(assinColabURL), assinResp = await carregarImg(assinRespURL);
   const c = cardCanvas(), ctx = c.getContext('2d');
   cardBase(ctx);
   ctx.fillStyle = cor.hex; ctx.fillRect(0, 0, CARD_W, 96);
@@ -2401,35 +2495,53 @@ async function desenharVerso(e, sigla, logoURL){
   ctx.fillStyle = cor.texto; ctx.textBaseline = 'alphabetic';
   cardAjustaFonte(ctx, emp, 700, 38, 20, CARD_W - 140 - 28, FONTE_CARD); ctx.fillText(emp, 116, 62);
   ctx.fillStyle = '#111'; ctx.font = `700 26px ${FONTE_CARD}`; ctx.fillText('VENCIMENTOS', 40, 150);
-  const itens = ['ASO', ...DOC_ORDER.filter(s => s !== 'ASO')].filter(s => s === 'ASO' || e.docs[s]);
-  const colunas = 2, linhasPorCol = Math.max(5, Math.ceil(itens.length / colunas));
-  const rowH = Math.min(40, Math.floor(260 / linhasPorCol));
+  let itens = ['ASO', ...DOC_ORDER.filter(s => s !== 'ASO')].filter(s => s === 'ASO' || e.docs[s]);
+  const colunas = itens.length > 14 ? 3 : 2;
+  const maxItens = colunas * 8;
+  const omitidos = Math.max(0, itens.length - maxItens);
+  itens = itens.slice(0, maxItens);
+  const linhasPorCol = Math.max(5, Math.ceil(itens.length / colunas));
+  const rowH = Math.min(40, Math.floor(250 / linhasPorCol));
   const colW = (CARD_W - 80) / colunas;
-  const tam = rowH > 34 ? 24 : 21;
+  const tam = rowH >= 36 ? 24 : rowH >= 30 ? 20 : 17;
+  const TOPO = 164;
   itens.forEach((s, i) => {
     const col = Math.floor(i / linhasPorCol), lin = i % linhasPorCol;
-    const x = 40 + col*colW, y = 176 + lin*rowH;
+    const x = 40 + col*colW, yc = TOPO + lin*rowH + rowH/2;      // yc = centro da linha
     const st = statusFor(e.docs[s]);
-    ctx.fillStyle = COR_STATUS[st]; ctx.beginPath(); ctx.arc(x+10, y+rowH/2-6, 9, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = COR_STATUS[st]; ctx.beginPath(); ctx.arc(x+10, yc, 8, 0, Math.PI*2); ctx.fill();
+    ctx.textBaseline = 'middle';
+    const dataTxt = e.docs[s] ? fmtDate(e.docs[s]) : 'não informado';
+    ctx.font = `600 ${tam}px ${FONTE_TXT}`;
+    const wData = ctx.measureText(dataTxt).width;
+    ctx.textAlign = 'right'; ctx.fillStyle = st === 'vencido' ? COR_STATUS.vencido : '#111';
+    ctx.fillText(dataTxt, x + colW - 18, yc + 1); ctx.textAlign = 'left';
     ctx.fillStyle = '#111';
-    cardAjustaFonte(ctx, s, 600, tam, 14, colW - 190, FONTE_CARD);
-    ctx.fillText(s, x+30, y+rowH/2+2);
-    ctx.textAlign = 'right'; ctx.font = `600 ${tam}px ${FONTE_TXT}`;
-    ctx.fillStyle = st === 'vencido' ? COR_STATUS.vencido : '#111';
-    ctx.fillText(e.docs[s] ? fmtDate(e.docs[s]) : 'não informado', x+colW-24, y+rowH/2+2); ctx.textAlign = 'left';
+    cardAjustaFonte(ctx, s, 600, tam, 12, colW - 30 - wData - 30, FONTE_CARD);
+    ctx.fillText(s, x + 30, yc + 1);
+    ctx.textBaseline = 'alphabetic';
   });
-  const ly = 176 + linhasPorCol*rowH + 18;
+  const fimTabela = TOPO + linhasPorCol * rowH;
+  const ly = fimTabela + 24;
   ctx.font = `500 17px ${FONTE_TXT}`; let lx = 40;
   [['valido','Em dia'],['a_vencer','A vencer'],['vencido','Vencido']].forEach(([k, t]) => {
     ctx.fillStyle = COR_STATUS[k]; ctx.beginPath(); ctx.arc(lx+7, ly-5, 7, 0, Math.PI*2); ctx.fill();
     ctx.fillStyle = '#444'; ctx.fillText(t, lx+20, ly); lx += 20 + ctx.measureText(t).width + 26;
   });
-  ctx.fillStyle = '#444'; ctx.font = `400 19px ${FONTE_TXT}`;
-  ctx.fillText('Portar durante a atividade. Pessoal e intransferível. Válida só com ASO e treinamento em dia.', 40, ly + 34);
+  if(omitidos){ ctx.fillStyle = '#6B747C'; ctx.textAlign = 'right'; ctx.fillText(`+ ${omitidos} documento(s) não exibido(s)`, CARD_W - 40, ly); ctx.textAlign = 'left'; }
+  ctx.fillStyle = '#444'; ctx.font = `400 18px ${FONTE_TXT}`;
+  ctx.fillText('Portar durante a atividade. Pessoal e intransferível. Válida só com ASO e treinamento em dia.', 40, ly + 28);
+  // assinaturas desenhadas ficam sempre acima da linha, na faixa reservada (y 486–546)
+  const desenhaAssin = (img, x0, x1) => {
+    if(!img) return;
+    const w = x1 - x0, h = 58, r = Math.min(w / img.width, h / img.height);
+    ctx.drawImage(img, x0 + (w - img.width*r)/2, 546 - img.height*r, img.width*r, img.height*r);
+  };
+  desenhaAssin(assinColab, 40, 470); desenhaAssin(assinResp, 540, CARD_W - 40);
   ctx.strokeStyle = '#111'; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(40, 548); ctx.lineTo(470, 548); ctx.moveTo(540, 548); ctx.lineTo(CARD_W - 40, 548); ctx.stroke();
   ctx.fillStyle = '#444'; ctx.font = `500 17px ${FONTE_TXT}`;
-  ctx.fillText('Assinatura do colaborador', 40, 570); ctx.fillText('Responsável / Segurança do Trabalho', 540, 570);
+  ctx.fillText(assinColab ? 'Assinatura digital do colaborador' : 'Assinatura do colaborador', 40, 570); ctx.fillText('Responsável / Segurança do Trabalho', 540, 570);
   ctx.fillStyle = '#6B747C'; ctx.font = `500 15px ${FONTE_TXT}`;
   ctx.fillText(`Emitida em ${fmtDate(hojeISO())}  ·  Cód. ${String(e.id).slice(-6).toUpperCase()}`, 40, 604);
   cardZebra(ctx, 0, CARD_H - 14, CARD_W, 14);
@@ -2483,10 +2595,84 @@ async function removerLogo(){
   }catch(err){ showToast('Não foi possível remover: ' + (err.message === 'forbidden' ? 'só o administrador.' : err.message), 'error'); }
 }
 
+
+// ---- assinatura digital (desenhada na tela) ----
+let SIG = {chave: null, depois: null, desenhou: false, desenhando: false};
+function abrirAssinatura(chave, titulo, depois){
+  SIG = {chave, depois, desenhou: false, desenhando: false};
+  document.getElementById('sigTitulo').textContent = '✍ ' + (titulo || 'Assinatura digital');
+  const cv = document.getElementById('sigCanvas'), ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.strokeStyle = '#d0d4d8'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(30, cv.height - 60); ctx.lineTo(cv.width - 30, cv.height - 60); ctx.stroke();
+  document.getElementById('sigModal').style.display = 'flex';
+}
+function iniciarPadAssinatura(){
+  const cv = document.getElementById('sigCanvas'), ctx = cv.getContext('2d');
+  const pos = ev => { const r = cv.getBoundingClientRect(); return {x: (ev.clientX - r.left) * cv.width / r.width, y: (ev.clientY - r.top) * cv.height / r.height}; };
+  cv.addEventListener('pointerdown', ev => {
+    ev.preventDefault(); cv.setPointerCapture(ev.pointerId);
+    SIG.desenhando = true; const p = pos(ev);
+    ctx.strokeStyle = '#111'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + 0.1, p.y + 0.1); ctx.stroke(); SIG.desenhou = true;
+  });
+  cv.addEventListener('pointermove', ev => {
+    if(!SIG.desenhando) return; ev.preventDefault();
+    const p = pos(ev); ctx.lineTo(p.x, p.y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(p.x, p.y);
+  });
+  const fim = () => { SIG.desenhando = false; };
+  cv.addEventListener('pointerup', fim); cv.addEventListener('pointercancel', fim);
+  document.getElementById('sigLimpar').addEventListener('click', () => abrirAssinatura(SIG.chave, document.getElementById('sigTitulo').textContent.replace('✍ ', ''), SIG.depois));
+  document.getElementById('sigCancelar').addEventListener('click', () => { document.getElementById('sigModal').style.display = 'none'; });
+  document.getElementById('sigSalvar').addEventListener('click', salvarAssinatura);
+}
+async function salvarAssinatura(){
+  if(!SIG.desenhou){ showToast('Faça a assinatura no quadro antes de salvar.'); return; }
+  const cv = document.getElementById('sigCanvas');
+  // Deixa o fundo transparente (só o traço preto fica), para imprimir limpo sobre a linha da carteirinha.
+  const out = document.createElement('canvas'); out.width = cv.width; out.height = cv.height;
+  const o = out.getContext('2d'); o.drawImage(cv, 0, 0);
+  const img = o.getImageData(0, 0, out.width, out.height), d = img.data;
+  for(let i = 0; i < d.length; i += 4){
+    const lum = (d[i] + d[i+1] + d[i+2]) / 3;
+    if(lum > 225){ d[i+3] = 0; } else { d[i] = d[i+1] = d[i+2] = 17; d[i+3] = Math.min(255, Math.round((225 - lum) * 255 / 160)); }
+  }
+  o.putImageData(img, 0, 0);
+  const blob = await new Promise(res => out.toBlob(res, 'image/png'));
+  const chave = SIG.chave, depois = SIG.depois;
+  try{
+    const r = await apiFetch('/api/foto?colaborador_id=' + encodeURIComponent(chave), {method:'POST', body: blob, headers: {'Content-Type': 'image/png'}});
+    FOTOS[chave] = r.foto.atualizado_em;
+    if(FOTO_URLS[chave]){ URL.revokeObjectURL(FOTO_URLS[chave].url); delete FOTO_URLS[chave]; }
+    document.getElementById('sigModal').style.display = 'none';
+    showToast('Assinatura salva.');
+    renderTable();
+    if(depois) depois();
+  }catch(err){
+    showToast('Não foi possível salvar a assinatura: ' + (err.message === 'forbidden' ? 'só o administrador pode assinar como responsável.' : err.message), 'error');
+  }
+}
+async function removerAssinatura(chave, depois){
+  if(!confirm('Remover esta assinatura?')) return;
+  try{
+    await apiFetch('/api/foto?colaborador_id=' + encodeURIComponent(chave), {method:'DELETE'});
+    delete FOTOS[chave];
+    if(FOTO_URLS[chave]){ URL.revokeObjectURL(FOTO_URLS[chave].url); delete FOTO_URLS[chave]; }
+    renderTable();
+    if(depois) depois();
+  }catch(err){ showToast('Não foi possível remover: ' + (err.message === 'forbidden' ? 'só o administrador.' : err.message), 'error'); }
+}
+function chaveAssinResp(){ return 'assinresp:' + (EMPRESA_ATUAL && EMPRESA_ATUAL.id); }
+function atualizarAssinRespStatus(){
+  const tem = !!FOTOS[chaveAssinResp()];
+  const el = document.getElementById('cardAssinRespStatus');
+  if(el) el.textContent = tem ? 'Assinatura do responsável cadastrada.' : 'Sem assinatura do responsável (a linha fica em branco).';
+  const rm = document.getElementById('cardAssinRespRemover'); if(rm) rm.style.display = tem ? '' : 'none';
+}
+function recarregarCarteiraAberta(){ if(CARTEIRA_ATUAL && document.getElementById('cardModal').style.display === 'flex') abrirCarteira(CARTEIRA_ATUAL.colabId, CARTEIRA_ATUAL.sigla); }
+
 let CARTEIRA_ATUAL = null;
-function equipKey(colabId, sigla){ return 'equip:' + colabId + ':' + sigla; }
-let EQUIP_TIMER = null;
-async function abrirCarteira(colabId, sigla, manterEquip){
+async function abrirCarteira(colabId, sigla){
   const e = DATA.find(x => x.id === colabId);
   if(!e || !e.docs[sigla]) return;
   if(statusFor(e.docs[sigla]) === 'vencido'){ showToast('Treinamento vencido: renove a data para gerar a carteirinha.', 'error'); return; }
@@ -2495,21 +2681,22 @@ async function abrirCarteira(colabId, sigla, manterEquip){
   const aviso = document.getElementById('cardAviso');
   aviso.textContent = 'Gerando…';
   try{
-    let fotoURL = null;
-    try{ fotoURL = await obterFotoURL(colabId); }catch(_){}
-    let logoURL = null;
-    try{ logoURL = await obterFotoURL(chaveLogo()); }catch(_){}
-    const campoEq = document.getElementById('cardEquip');
-    if(!manterEquip){ let g = ''; try{ g = localStorage.getItem(equipKey(colabId, sigla)) || ''; }catch(_){} campoEq.value = g; }
-    const equip = campoEq.value.trim().slice(0, 60);
-    document.getElementById('cardEquipBox').style.display = (ehOperadorMaquina(sigla) || ehOperadorEquip(sigla)) ? '' : 'none';
-    const f = await desenharFrente(e, sigla, fotoURL, logoURL, (ehOperadorMaquina(sigla) || ehOperadorEquip(sigla)) ? equip : ''), v = await desenharVerso(e, sigla, logoURL);
+    const url = async chave => { try{ return await obterFotoURL(chave); }catch(_){ return null; } };
+    const fotoURL = await url(colabId), logoURL = await url(chaveLogo());
+    const assinColab = await url('assin:' + colabId), assinResp = await url(chaveAssinResp());
+    const f = await desenharFrente(e, sigla, fotoURL, logoURL), v = await desenharVerso(e, sigla, logoURL, assinColab, assinResp);
     CARTEIRA_ATUAL = {frente: f, verso: v, nome: e.nome, sigla, colabId};
     atualizarLogoStatus(!!logoURL);
+    atualizarAssinRespStatus();
     const box = document.getElementById('cardPreview');
     box.innerHTML = '';
     [f, v].forEach(cv => { cv.style.cssText = 'width:100%;max-width:520px;height:auto;border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,.45);display:block;margin:0 auto 12px;'; box.appendChild(cv); });
-    aviso.textContent = fotoURL ? '' : '⚠ Este colaborador ainda não tem foto. Feche, envie a foto na ficha e gere de novo.';
+    const avisos = [];
+    if(!fotoURL) avisos.push('sem foto');
+    if(!assinColab) avisos.push('sem assinatura do colaborador');
+    if((ehOperadorMaquina(sigla) || ehOperadorEquip(sigla)) && !((EXTRAS[colabId] || {}).maquina)) avisos.push('sem o tipo de máquina');
+    if(!((EXTRAS[colabId] || {}).cargo)) avisos.push('sem cargo');
+    aviso.textContent = avisos.length ? '⚠ Faltando na ficha: ' + avisos.join(', ') + '. Feche, complete e gere de novo.' : '';
   }catch(err){
     aviso.textContent = 'Não foi possível gerar a carteirinha: ' + err.message;
   }
@@ -2661,7 +2848,7 @@ async function lerArquivoImport(file){
 }
 
 function baixarModeloImport(){
-  const csv = '﻿' + ['Nome', 'Observação'].concat(DOC_ORDER).join(';') + '\r\n';
+  const csv = '﻿' + ['Nome', 'Cargo', 'Tipo de máquina', 'Observação'].concat(DOC_ORDER).join(';') + '\r\n';
   const url = URL.createObjectURL(new Blob([csv], {type: 'text/csv;charset=utf-8;'}));
   const a = document.createElement('a');
   a.href = url;
@@ -2674,11 +2861,13 @@ function baixarModeloImport(){
 // ---------- Export / Import backup ----------
 function exportCSV(){
   const rows = sortRows(getFiltered());
-  const header = ['Nome','Observação','Status geral', ...DOC_ORDER.map(s => s+' data'), ...DOC_ORDER.map(s => s+' status')];
+  const header = ['Nome','Cargo','Tipo de máquina','Observação','Status geral', ...DOC_ORDER.map(s => s+' data'), ...DOC_ORDER.map(s => s+' status')];
   const lines = [header.join(';')];
   rows.forEach(e => {
     const line = [
       e.nome,
+      (EXTRAS[e.id] || {}).cargo || '',
+      (EXTRAS[e.id] || {}).maquina || '',
       (e.notas||[]).join(', '),
       STATUS_META[statusGeral(e)].label,
       ...DOC_ORDER.map(s => fmtDate(e.docs[s])),
@@ -3037,6 +3226,13 @@ async function iniciarApp(){
     else if(a.dataset.certDel) excluirCertificado(a.dataset.certDel);
   });
   tbodyCert.addEventListener('click', ev => {
+    const sg = ev.target.closest('[data-assin-abrir],[data-assin-del]');
+    if(sg){
+      ev.preventDefault();
+      if(sg.dataset.assinAbrir) abrirAssinatura(sg.dataset.assinAbrir, sg.dataset.assinTitulo, null);
+      else removerAssinatura(sg.dataset.assinDel, null);
+      return;
+    }
     const a = ev.target.closest('[data-card-sigla],[data-foto-del]');
     if(!a) return;
     ev.preventDefault();
@@ -3061,14 +3257,9 @@ async function iniciarApp(){
     if(box && arq) enviarFoto(box.dataset.fotoColab, arq, box);
   });
   document.getElementById('cardFechar').addEventListener('click', () => { document.getElementById('cardModal').style.display = 'none'; });
-  document.getElementById('cardEquip').addEventListener('input', () => {
-    if(!CARTEIRA_ATUAL) return;
-    clearTimeout(EQUIP_TIMER);
-    EQUIP_TIMER = setTimeout(() => {
-      try{ localStorage.setItem(equipKey(CARTEIRA_ATUAL.colabId, CARTEIRA_ATUAL.sigla), document.getElementById('cardEquip').value.trim()); }catch(_){}
-      abrirCarteira(CARTEIRA_ATUAL.colabId, CARTEIRA_ATUAL.sigla, true);
-    }, 500);
-  });
+  iniciarPadAssinatura();
+  document.getElementById('cardAssinResp').addEventListener('click', ev => { ev.preventDefault(); abrirAssinatura(chaveAssinResp(), 'Assinatura do responsável', recarregarCarteiraAberta); });
+  document.getElementById('cardAssinRespRemover').addEventListener('click', ev => { ev.preventDefault(); removerAssinatura(chaveAssinResp(), () => { atualizarAssinRespStatus(); recarregarCarteiraAberta(); }); });
   document.getElementById('cardLogoInput').addEventListener('change', ev => { const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; if(f) enviarLogo(f); });
   document.getElementById('cardLogoRemover').addEventListener('click', ev => { ev.preventDefault(); removerLogo(); });
   document.getElementById('cardImprimir').addEventListener('click', imprimirCarteira);
