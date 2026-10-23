@@ -2315,6 +2315,41 @@ function cardAjustaFonte(ctx, texto, peso, tamMax, tamMin, maxW, familia){
   return t;
 }
 
+function desenharFotoCover(ctx, img, x, y, w, h){
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  const alvo = w / h, orig = img.width / img.height;
+  let sw = img.width, sh = img.height, sx = 0, sy = 0;
+  if(orig > alvo){ sw = img.height * alvo; sx = (img.width - sw) / 2; }
+  else { sh = img.width / alvo; sy = Math.max(0, (img.height - sh) * 0.12); }
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+  ctx.restore();
+}
+function desenharChipsNR(ctx, e, x, y, w, h){
+  const docs = e.docs || {};
+  const itens = Object.keys(docs).filter(s => docs[s] && statusFor(docs[s]) !== 'sem_registro');
+  if(!itens.length) return;
+  const gap = 8, ch = Math.min(46, h - 8);
+  const por = Math.max(1, Math.min(itens.length, Math.floor((w + gap) / 56)));
+  const cw = Math.min(58, Math.floor((w - gap * (por - 1)) / por));
+  let col = 0, cy = y + Math.max(0, (h - ch) / 2);
+  itens.slice(0, por * 2).forEach(s => {
+    if(col >= por){ col = 0; cy += ch + 6; if(cy + ch > y + h) return; }
+    const cx = x + col * (cw + gap);
+    const st = statusFor(docs[s]);
+    const bg = (corSegurancaDe(s) && corSegurancaDe(s).hex) || '#F5B800';
+    ctx.fillStyle = bg; cardRound(ctx, cx, cy, cw, ch, 8); ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = st === 'vencido' ? '#7a120e' : (st === 'a_vencer' ? '#8a5a00' : 'rgba(0,0,0,.35)');
+    cardRound(ctx, cx, cy, cw, ch, 8); ctx.stroke();
+    const rot = String(s).replace(/^NR\s*-?\s*/i, '').slice(0, 6);
+    ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `800 ${rot.length > 4 ? 13 : 16}px ${FONTE_CARD}`;
+    ctx.fillText(rot, cx + cw/2, cy + ch/2 + 1);
+    col++;
+  });
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+}
+
 async function desenharFrente(e, sigla, fotoURL, logoURL, equip){
   try{ await document.fonts.load("700 40px 'Oswald'"); await document.fonts.load("400 22px 'Inter'"); }catch(_){}
   const cor = corSegurancaDe(sigla), emp = nomeEmpresaCarteira();
@@ -2322,72 +2357,103 @@ async function desenharFrente(e, sigla, fotoURL, logoURL, equip){
   const fotoImg = await carregarImg(fotoURL), logoImg = await carregarImg(logoURL);
   const c = cardCanvas(), ctx = c.getContext('2d');
   cardBase(ctx);
-  ctx.fillStyle = cor.hex; ctx.fillRect(0, 0, CARD_W, 150);
-  cardZebra(ctx, 0, 150, CARD_W, 16);
-  cardLogo(ctx, logoImg, 28, 20, 110, 110, emp);
+
+  const HEADER = 122;
+  ctx.fillStyle = cor.hex; ctx.fillRect(0, 0, CARD_W, HEADER);
+  cardZebra(ctx, 0, HEADER, CARD_W, 12);
+  cardLogo(ctx, logoImg, 22, 12, 98, 98, emp);
+
   ctx.textBaseline = 'alphabetic';
-  ctx.font = `700 54px ${FONTE_CARD}`;
-  const wSig = Math.min(ctx.measureText(sigla).width + 44, 300);
-  const xSig = CARD_W - 28 - wSig;
-  ctx.fillStyle = '#fff'; cardRound(ctx, xSig, 42, wSig, 76, 12); ctx.fill();
-  ctx.fillStyle = '#111'; cardAjustaFonte(ctx, sigla, 700, 54, 28, wSig - 24, FONTE_CARD);
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(sigla, xSig + wSig/2, 82); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-  const xT = 158, wT = xSig - xT - 20;
+  ctx.fillStyle = '#fff'; cardRound(ctx, CARD_W - 250, 28, 222, 68, 12); ctx.fill();
+  ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  cardAjustaFonte(ctx, sigla, 700, 36, 18, 198, FONTE_CARD);
+  ctx.fillText(sigla, CARD_W - 250 + 111, 62);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+
+  const xT = 138, wT = CARD_W - 250 - 20 - xT;
   ctx.fillStyle = cor.texto;
-  const sub = emp + '  ·  SEGURANÇA DO TRABALHO';
-  cardAjustaFonte(ctx, sub, 500, 24, 14, wT, FONTE_CARD); ctx.fillText(sub, xT, 56);
-  cardAjustaFonte(ctx, titularCarteira(sigla), 700, 54, 28, wT, FONTE_CARD); ctx.fillText(titularCarteira(sigla), xT, 114);
-  const fx = 40, fy = 196, fw = 240, fh = 320;
-  ctx.fillStyle = '#E9ECEF'; ctx.fillRect(fx, fy, fw, fh);
-  if(fotoImg){ ctx.drawImage(fotoImg, fx, fy, fw, fh); }
-  else{
-    ctx.fillStyle = '#B8C0C8'; ctx.beginPath(); ctx.arc(fx+fw/2, fy+120, 56, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(fx+fw/2, fy+260, 96, 80, 0, Math.PI, 0); ctx.fill();
-    ctx.fillStyle = '#6B747C'; ctx.font = `500 20px ${FONTE_TXT}`; ctx.textAlign = 'center'; ctx.fillText('SEM FOTO', fx+fw/2, fy+fh-14); ctx.textAlign = 'left';
+  const sub = emp + '  ·  SST';
+  cardAjustaFonte(ctx, sub, 500, 20, 12, wT, FONTE_CARD); ctx.fillText(sub, xT, 48);
+  cardAjustaFonte(ctx, titularCarteira(sigla), 700, 34, 18, wT, FONTE_CARD); ctx.fillText(titularCarteira(sigla), xT, 92);
+
+  const fx = 28, fy = 158, fw = 248, fh = 332;
+  ctx.fillStyle = '#e8ecef'; cardRound(ctx, fx, fy, fw, fh, 16); ctx.fill();
+  ctx.save(); cardRound(ctx, fx, fy, fw, fh, 16); ctx.clip();
+  if(fotoImg) desenharFotoCover(ctx, fotoImg, fx, fy, fw, fh);
+  else {
+    ctx.fillStyle = '#c5ced6';
+    ctx.beginPath(); ctx.arc(fx+fw/2, fy+118, 58, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(fx+fw/2, fy+268, 100, 78, 0, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = '#5c6770'; ctx.font = `600 18px ${FONTE_TXT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText('SEM FOTO', fx+fw/2, fy+fh-16);
   }
-  ctx.lineWidth = 8; ctx.strokeStyle = cor.hex; ctx.strokeRect(fx-4, fy-4, fw+8, fh+8);
-  const x = 320, maxW = CARD_W - x - 40;
-  ctx.fillStyle = '#6B747C'; ctx.font = `600 19px ${FONTE_TXT}`; ctx.fillText('NOME', x, 208);
+  ctx.restore();
+  ctx.lineWidth = 7; ctx.strokeStyle = cor.hex; cardRound(ctx, fx, fy, fw, fh, 16); ctx.stroke();
+
+  const x = 304, maxW = CARD_W - x - 28;
+  let y = 188;
+  ctx.fillStyle = '#6B747C'; ctx.font = `600 16px ${FONTE_TXT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText('NOME', x, y);
   ctx.fillStyle = '#111';
-  const nomeUp = e.nome.toUpperCase();
-  cardAjustaFonte(ctx, nomeUp, 700, 40, 30, maxW, FONTE_CARD);          // tenta caber em uma linha
-  let linhas = [nomeUp], passo = 0;
-  if(ctx.measureText(nomeUp).width > maxW){                             // nome muito longo: duas linhas menores
-    ctx.font = `700 30px ${FONTE_CARD}`;
-    linhas = cardQuebra(ctx, nomeUp, maxW, 2); passo = 32;
+  const nomeUp = String(e.nome || '').toUpperCase();
+  cardAjustaFonte(ctx, nomeUp, 700, 36, 22, maxW, FONTE_CARD);
+  let linhas = [nomeUp];
+  if(ctx.measureText(nomeUp).width > maxW){
+    ctx.font = `700 26px ${FONTE_CARD}`;
+    linhas = cardQuebra(ctx, nomeUp, maxW, 2);
   }
-  linhas.forEach((l, i) => ctx.fillText(l, x, 250 + i*passo));
-  let y = 250 + (linhas.length - 1) * passo + 42;
-  ctx.fillStyle = '#6B747C'; ctx.font = `600 19px ${FONTE_TXT}`; ctx.fillText(equip ? 'TREINAMENTO · MÁQUINA/EQUIPAMENTO AUTORIZADO' : 'TREINAMENTO', x, y);
-  ctx.fillStyle = '#111'; ctx.font = `600 28px ${FONTE_CARD}`;
+  const passoNome = linhas.length > 1 ? 30 : 0;
+  linhas.forEach((l, i) => ctx.fillText(l, x, y + 36 + i*passoNome));
+  y += 36 + (linhas.length - 1) * passoNome + 28;
+
+  const funcao = e.funcao ? String(e.funcao).trim() : '';
+  if(funcao){
+    ctx.fillStyle = '#6B747C'; ctx.font = `600 16px ${FONTE_TXT}`; ctx.fillText('FUNÇÃO', x, y);
+    ctx.fillStyle = '#111';
+    const fu = funcao.toUpperCase();
+    cardAjustaFonte(ctx, fu, 600, 22, 14, maxW, FONTE_CARD);
+    ctx.fillText(fu, x, y + 26);
+    y += 48;
+  }
+
+  ctx.fillStyle = '#6B747C'; ctx.font = `600 16px ${FONTE_TXT}`;
+  ctx.fillText(equip ? 'TREINAMENTO · EQUIPAMENTO' : 'TREINAMENTO', x, y);
   const nomeTrein = (DOC_TYPES[sigla] && DOC_TYPES[sigla].nome) || sigla;
   const textoTrein = (nomeTrein && nomeTrein !== sigla ? nomeTrein : sigla) + (equip ? '  ·  ' + equip : '');
-  cardAjustaFonte(ctx, textoTrein, 600, 28, 18, maxW, FONTE_CARD);
-  ctx.fillText(textoTrein, x, y + 34);
-  y += 34 + 40;
+  ctx.fillStyle = '#111';
+  cardAjustaFonte(ctx, textoTrein, 600, 24, 15, maxW, FONTE_CARD);
+  ctx.fillText(textoTrein, x, y + 30);
+  y += 62;
+
   const colW = maxW / 2;
   [['VALIDADE ' + sigla, e.docs[sigla]], ['VALIDADE ASO', e.docs['ASO']]].forEach(([rot, data], i) => {
-    const cx = x + i*colW;
-    ctx.fillStyle = '#6B747C'; ctx.font = `600 19px ${FONTE_TXT}`;
-    const rotAj = cardQuebra(ctx, rot, colW - 10, 1)[0]; ctx.fillText(rotAj, cx, y);
+    const cx = x + i * colW;
+    ctx.fillStyle = '#6B747C'; ctx.font = `600 15px ${FONTE_TXT}`;
+    ctx.fillText(cardQuebra(ctx, rot, colW - 8, 1)[0], cx, y);
     const st = statusFor(data);
     ctx.fillStyle = st === 'vencido' ? COR_STATUS.vencido : '#111';
-    cardAjustaFonte(ctx, data ? fmtDate(data) : 'NÃO INFORMADO', 700, passo ? 40 : 46, 24, colW - 12, FONTE_CARD);
-    ctx.fillText(data ? fmtDate(data) : 'NÃO INFORMADO', cx, y + 46);
+    const dt = data ? fmtDate(data) : 'NÃO INFORMADO';
+    cardAjustaFonte(ctx, dt, 700, 32, 18, colW - 10, FONTE_CARD);
+    ctx.fillText(dt, cx, y + 36);
   });
-  const by = 452, bh = 64;
-  ctx.fillStyle = apt.apto ? COR_STATUS.valido : COR_STATUS.vencido; cardRound(ctx, x, by, maxW, bh, 12); ctx.fill();
+
+  const by = 500, bh = 58;
+  ctx.fillStyle = apt.apto ? COR_STATUS.valido : COR_STATUS.vencido;
+  cardRound(ctx, x, by, maxW, bh, 12); ctx.fill();
   ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  const txtApto = apt.apto ? '✔  APTO PARA ATIVIDADE' : '✖  NÃO APTO — ' + apt.motivo;
-  cardAjustaFonte(ctx, txtApto, 700, 36, 20, maxW - 30, FONTE_CARD);
-  ctx.fillText(txtApto, x + maxW/2, by + bh/2 + 2);
+  const txtApto = apt.apto ? 'APTO PARA ATIVIDADE' : 'NÃO APTO — ' + apt.motivo;
+  cardAjustaFonte(ctx, txtApto, 700, 26, 14, maxW - 24, FONTE_CARD);
+  ctx.fillText(txtApto, x + maxW/2, by + bh/2 + 1);
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = cor.hex; ctx.fillRect(40, 556, 34, 34);
-  ctx.fillStyle = '#333'; ctx.font = `500 21px ${FONTE_TXT}`;
-  ctx.fillText(`Cor de segurança (NR-26): ${cor.nome} — ${cor.uso}`, 88, 580);
-  cardZebra(ctx, 0, CARD_H - 14, CARD_W, 14);
+
+  ctx.fillStyle = '#f3f4f6'; ctx.fillRect(0, 572, CARD_W, CARD_H - 572);
+  ctx.fillStyle = cor.hex; ctx.fillRect(28, 586, 22, 22);
+  ctx.fillStyle = '#333'; ctx.font = `500 16px ${FONTE_TXT}`;
+  ctx.fillText('NR-26  ·  ' + cor.nome + '  ·  ' + cor.uso, 60, 604);
+  cardZebra(ctx, 0, CARD_H - 12, CARD_W, 12);
   return c;
 }
+desenharFrente.__layoutV2 = true;
 
 async function desenharVerso(e, sigla, logoURL){
   try{ await document.fonts.load("700 40px 'Oswald'"); await document.fonts.load("400 22px 'Inter'"); }catch(_){}
