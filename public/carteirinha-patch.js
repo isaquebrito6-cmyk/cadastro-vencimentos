@@ -1,4 +1,4 @@
-/* Patch v7: exclusao empresa estavel, lote via renderTable, chips, assinaturas */
+/* Patch v8: icones maiores + exclusao empresa sem erro no refresh */
 (function () {
   var SIG_COLAB_KEY = 'cv_assinatura_colaborador';
   var SIG_RESP_KEY = 'cv_assinatura_responsavel';
@@ -175,7 +175,6 @@
     try {
       if (window.DOC_TYPES && window.DOC_TYPES[sigla] && window.DOC_TYPES[sigla].cor) return window.DOC_TYPES[sigla].cor;
     } catch (_) {}
-    // cores tipicas
     var s = String(sigla).toUpperCase();
     if (s === 'ASO') return '#3fae5c';
     if (s.indexOf('35') >= 0) return '#4fa3e3';
@@ -185,7 +184,7 @@
   }
 
   function patchDesenharFrenteBadges() {
-    if (typeof window.desenharFrente !== 'function' || window.desenharFrente.__patchedBadges2) return;
+    if (typeof window.desenharFrente !== 'function' || window.desenharFrente.__patchedBadges3) return;
     var prev = window.desenharFrente;
     window.desenharFrente = async function (e, sigla, fotoURL, logoURL, equip) {
       var c = await prev(e, sigla, fotoURL, logoURL, equip);
@@ -201,32 +200,41 @@
           itens.push({ sigla: s, st: st });
         });
         if (!itens.length) return c;
-        var x = 28, y = c.height - 56, gap = 6, maxX = c.width - 28;
+
+        var faixaH = 52;
+        var faixaY = c.height - faixaH - 10;
+        ctx.fillStyle = 'rgba(0,0,0,0.08)';
+        ctx.fillRect(0, faixaY - 4, c.width, faixaH + 14);
+
+        var x = 24, y = faixaY, gap = 10, maxX = c.width - 24;
         itens.forEach(function (it) {
           var rot = rotuloLocal(it.sigla);
           var bg = corDocLocal(it.sigla);
           var border = corStatusLocal(it.st);
-          var cw = 36, ch = 32;
+          var cw = 52, ch = 48;
           if (x + cw > maxX) return;
+
+          ctx.fillStyle = 'rgba(0,0,0,0.25)';
+          ctx.fillRect(x + 2, y + 2, cw, ch);
+
           ctx.fillStyle = bg;
           ctx.strokeStyle = border;
-          ctx.lineWidth = 3;
+          ctx.lineWidth = 4;
           ctx.beginPath();
           ctx.rect(x, y, cw, ch);
           ctx.fill();
           ctx.stroke();
-          ctx.fillStyle = '#15171a';
+
+          ctx.fillStyle = '#111';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           if (rot.bottom) {
-            ctx.font = '700 9px monospace';
-            ctx.globalAlpha = 0.85;
-            ctx.fillText(rot.top, x + cw / 2, y + 10);
-            ctx.globalAlpha = 1;
             ctx.font = '800 12px monospace';
-            ctx.fillText(rot.bottom, x + cw / 2, y + 22);
+            ctx.fillText(rot.top, x + cw / 2, y + 15);
+            ctx.font = '900 18px monospace';
+            ctx.fillText(rot.bottom, x + cw / 2, y + 34);
           } else {
-            ctx.font = '800 12px monospace';
+            ctx.font = '900 18px monospace';
             ctx.fillText(rot.top, x + cw / 2, y + ch / 2 + 1);
           }
           ctx.textAlign = 'left';
@@ -235,7 +243,7 @@
       } catch (_) {}
       return c;
     };
-    window.desenharFrente.__patchedBadges2 = true;
+    window.desenharFrente.__patchedBadges3 = true;
   }
 
   async function excluirEmpresaSelecionada() {
@@ -262,11 +270,31 @@
       var b = String(nome).trim().toLowerCase().replace(/\s+/g, ' ');
       if (a !== b) { alert('Nome não confere. Empresa não excluída.'); return; }
       if (typeof window.apiFetch !== 'function') { alert('API não disponível. Recarregue (Ctrl+F5).'); return; }
-      await window.apiFetch('/api/empresas?id=' + encodeURIComponent(id), { method: 'DELETE' });
-      alert('Empresa "' + nome + '" excluída.');
+
+      var idExcluido = id;
       window.EMPRESA_ATUAL = null;
-      if (typeof window.refreshData === 'function') await window.refreshData();
-      else location.reload();
+
+      await window.apiFetch('/api/empresas?id=' + encodeURIComponent(idExcluido), { method: 'DELETE' });
+
+      try {
+        var lista = await window.apiFetch('/api/empresas');
+        var empresas = (lista && lista.empresas) || [];
+        if (empresas.length) {
+          window.EMPRESA_ATUAL = { id: empresas[0].id, nome: empresas[0].nome };
+          try {
+            if (typeof window.EMPRESAS_DISPONIVEIS !== 'undefined') window.EMPRESAS_DISPONIVEIS = empresas;
+            if (typeof window.renderSeletorEmpresa === 'function') window.renderSeletorEmpresa();
+          } catch (_) {}
+        }
+      } catch (_) {}
+
+      try {
+        if (typeof window.refreshData === 'function') await window.refreshData();
+      } catch (e2) {
+        console.warn('refresh apos excluir empresa', e2);
+        try { location.reload(); return; } catch (_) {}
+      }
+      alert('Empresa "' + nome + '" excluída.');
     } catch (err) {
       var msg = (err && err.message) || String(err);
       if (msg === 'nao_pode_excluir_ultima_empresa') msg = 'Não é possível excluir a última empresa.';
@@ -313,13 +341,11 @@
       '<button type="button" class="btn ghost" id="batchDelBtn" style="color:var(--red,#e2483a);">Excluir selecionados</button>' +
       '<span id="batchCount" style="font-size:11px;color:var(--text-dim,#9aa0a8);"></span>';
     addBtn.parentNode.insertBefore(wrap, addBtn.nextSibling);
-
     document.getElementById('colabSelectAll').addEventListener('change', function (ev) {
       var on = !!ev.target.checked;
       document.querySelectorAll('#tableBody .colab-check').forEach(function (c) { c.checked = on; });
       atualizarBatchCount();
     });
-
     document.getElementById('batchDelBtn').addEventListener('click', async function () {
       var ids = [];
       document.querySelectorAll('#tableBody .colab-check:checked').forEach(function (c) {
@@ -478,13 +504,14 @@
   }
 
   function showVersionBadge() {
-    if (document.getElementById('patch-version-badge')) return;
-    var el = document.createElement('div');
-    el.id = 'patch-version-badge';
-    el.textContent = 'patch v7';
-    el.title = 'Atualizações ativas';
-    el.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:99999;font-size:10px;opacity:0.55;background:#111;color:#9f9;padding:2px 6px;border-radius:4px;pointer-events:none;';
-    document.body.appendChild(el);
+    var el = document.getElementById('patch-version-badge');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'patch-version-badge';
+      el.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:99999;font-size:10px;opacity:0.55;background:#111;color:#9f9;padding:2px 6px;border-radius:4px;pointer-events:none;';
+      document.body.appendChild(el);
+    }
+    el.textContent = 'patch v8';
   }
 
   function boot() {
