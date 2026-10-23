@@ -1,4 +1,4 @@
-/* Patch v11: chips acima NR-26, sem sobrepor; historico delete sem double-fire */
+/* Patch v12: foto um pouco menor + icones maiores sob a foto; NR-26 livre */
 (function () {
   var SIG_COLAB_KEY = 'cv_assinatura_colaborador';
   var SIG_RESP_KEY = 'cv_assinatura_responsavel';
@@ -163,12 +163,23 @@
     return '#F26B1D';
   }
   function patchDesenharFrenteBadges() {
-    if (typeof window.desenharFrente !== 'function' || window.desenharFrente.__patchedBadges6) return;
+    if (typeof window.desenharFrente !== 'function' || window.desenharFrente.__patchedBadges7) return;
     var prev = window.desenharFrente;
     window.desenharFrente = async function (e, sigla, fotoURL, logoURL, equip) {
       var c = await prev(e, sigla, fotoURL, logoURL, equip);
       try {
         var ctx = c.getContext('2d');
+        // Foto original: 40,196 240x320 → base 516. Encolhe 48px por baixo.
+        var fx = 40, fy = 196, fw = 240, fh = 320;
+        var shrink = 48;
+        var fotoBase = fy + fh;
+        var novaBase = fotoBase - shrink;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(fx - 1, novaBase, fw + 2, shrink + 2);
+        ctx.strokeStyle = '#c5c9ce';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(fx, fy, fw, fh - shrink);
+
         var docs = (e && e.docs) || {};
         var itens = [];
         Object.keys(docs).forEach(function (s) {
@@ -179,21 +190,26 @@
         });
         if (!itens.length) return c;
 
-        // APT ~452-516 | chips 518-546 | NR-26 em 556-590 | zebra 624-638
-        var cw = 40, ch = 28, gap = 6, padX = 40;
-        var y = 518;
-        var maxX = c.width - 40;
-        var x = padX;
+        var cw = 52, ch = 40, gap = 8;
+        var x = fx;
+        var y = novaBase + 6;
+        var maxX = Math.min(c.width - 30, fx + fw + 220);
 
         itens.forEach(function (it) {
-          if (x + cw > maxX) return;
+          if (x + cw > maxX) {
+            x = fx;
+            y += ch + 6;
+            if (y + ch > 548) return;
+          }
           var rot = rotuloLocal(it.sigla);
           var bg = corSegChip(it.sigla);
           var border = it.st === 'vencido' ? '#e2483a' : (it.st === 'a_vencer' ? '#f2954a' : '#222');
 
+          ctx.fillStyle = 'rgba(0,0,0,0.18)';
+          ctx.fillRect(x + 2, y + 2, cw, ch);
           ctx.fillStyle = bg;
           ctx.strokeStyle = border;
-          ctx.lineWidth = 2;
+          ctx.lineWidth = 3;
           ctx.beginPath();
           ctx.rect(x, y, cw, ch);
           ctx.fill();
@@ -203,12 +219,12 @@
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           if (rot.bottom) {
-            ctx.font = '700 8px monospace';
-            ctx.fillText(rot.top, x + cw / 2, y + 9);
-            ctx.font = '800 11px monospace';
-            ctx.fillText(rot.bottom, x + cw / 2, y + 20);
+            ctx.font = '800 10px monospace';
+            ctx.fillText(rot.top, x + cw / 2, y + 12);
+            ctx.font = '900 15px monospace';
+            ctx.fillText(rot.bottom, x + cw / 2, y + 28);
           } else {
-            ctx.font = '800 11px monospace';
+            ctx.font = '900 14px monospace';
             ctx.fillText(rot.top, x + cw / 2, y + ch / 2 + 1);
           }
           ctx.textAlign = 'left';
@@ -217,13 +233,12 @@
       } catch (_) {}
       return c;
     };
-    window.desenharFrente.__patchedBadges6 = true;
+    window.desenharFrente.__patchedBadges7 = true;
   }
 
   function patchHistoricoDelete() {
     var list = document.getElementById('historicoList');
-    if (!list) return;
-    if (list.__histDelV11) return;
+    if (!list || list.__histDelV11) return;
     list.__histDelV11 = true;
     list.addEventListener('click', async function (ev) {
       var btn = ev.target.closest('[data-del-historico]');
@@ -505,7 +520,7 @@
       el.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:99999;font-size:10px;opacity:0.55;background:#111;color:#9f9;padding:2px 6px;border-radius:4px;pointer-events:none;';
       document.body.appendChild(el);
     }
-    el.textContent = 'patch v11';
+    el.textContent = 'patch v12';
   }
   function boot() {
     showVersionBadge();
