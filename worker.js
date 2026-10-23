@@ -1,25 +1,20 @@
-import { handleLogin, handleFoto } from './lib/handlers_a2.js';
-import { handleEmpresas } from './lib/handlers_a3.js';
-import { handleData } from './lib/handlers_data.js';
-import { handleColaborador } from './lib/handlers_colab.js';
-import { handleHistorico } from './lib/handlers_hist.js';
-import { json } from './lib/auth.js';
+import { hashPassword, verifyPassword, makeSessionToken, getSession, json, generateRecoveryCode, usernameValido } from './lib/auth.js';
+
+// TEMP: worker mínimo estável enquanto o completo sobe
+// Este arquivo será substituído pelo completo na sequência
 
 export default {
   async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const p = url.pathname;
     try {
-      const url = new URL(request.url);
-      const p = url.pathname;
-      if (p === '/api/login') return await handleLogin(request, env);
-      if (p === '/api/empresas') return await handleEmpresas(request, env, url);
-      if (p === '/api/data') return await handleData(request, env, url);
-      if (p === '/api/foto') return await handleFoto(request, env, url);
-      if (p === '/api/colaborador') return await handleColaborador(request, env, url);
-      if (p === '/api/historico') return await handleHistorico(request, env, url);
-      if (p.startsWith('/api/')) return json({ error: 'not_found' }, 404);
+      if (p.startsWith('/api/')) {
+        // Deixa claro no log do CF que o worker está de pé, mas precisa do arquivo completo
+        return json({ error: 'worker_parcial', dica: 'Aguardando worker completo no GitHub' }, 503);
+      }
       if (env.ASSETS) {
         const assetRes = await env.ASSETS.fetch(request);
-        if ((url.pathname === '/' || url.pathname === '/index.html') && assetRes.ok) {
+        if ((p === '/' || p === '/index.html') && assetRes.ok) {
           let html = await assetRes.text();
           if (!html.includes('carteirinha-patch.js')) {
             html = html.replace('</body>', '<script src="/carteirinha-patch.js?v=16"></script>\n</body>');
@@ -34,7 +29,7 @@ export default {
       return new Response('Not found', { status: 404 });
     } catch (err) {
       console.error(err);
-      return json({ error: 'internal_error' }, 500);
+      return json({ error: 'internal_error', message: String(err && err.message || err) }, 500);
     }
   },
 };
