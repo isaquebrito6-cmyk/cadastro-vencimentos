@@ -1,4 +1,4 @@
-/* Patch v10: chips multi-linha sem sobrepor, cor seguranca (laranja maquinas), historico */
+/* Patch v11: chips acima NR-26, sem sobrepor; historico delete sem double-fire */
 (function () {
   var SIG_COLAB_KEY = 'cv_assinatura_colaborador';
   var SIG_RESP_KEY = 'cv_assinatura_responsavel';
@@ -127,11 +127,11 @@
       try {
         var ctx = c.getContext('2d');
         ctx.fillStyle = '#6B747C'; ctx.font = '600 16px Inter, sans-serif';
-        ctx.fillText('FUNÇÃO', 40, 530);
+        ctx.fillText('FUNÇÃO', 300, 208);
         ctx.fillStyle = '#111'; ctx.font = '600 20px Oswald, sans-serif';
         var texto = funcao.toUpperCase();
-        while (ctx.measureText(texto).width > 240 && texto.length > 3) texto = texto.slice(0, -2);
-        ctx.fillText(texto, 40, 554);
+        while (ctx.measureText(texto).width > 400 && texto.length > 3) texto = texto.slice(0, -2);
+        ctx.fillText(texto, 300, 232);
       } catch (_) {}
       return c;
     };
@@ -148,20 +148,22 @@
     if (temSup) num += '+';
     return { top: 'NR', bottom: num };
   }
-  function corDocLocal(sigla) {
+  function corSegChip(sigla) {
     try {
-      if (window.DOC_TYPES && window.DOC_TYPES[sigla] && window.DOC_TYPES[sigla].cor) return window.DOC_TYPES[sigla].cor;
+      if (typeof window.corSegurancaDe === 'function') {
+        var cs = window.corSegurancaDe(sigla);
+        if (cs && cs.hex) return cs.hex;
+      }
     } catch (_) {}
     var s = String(sigla).toUpperCase();
-    if (s === 'ASO') return '#3fae5c';
+    if (s === 'ASO') return '#2E8B57';
     if (s.indexOf('35') >= 0) return '#0A5BB5';
     if (s.indexOf('33') >= 0) return '#F5B800';
-    if (s.indexOf('20') >= 0 || s.indexOf('LOTO') >= 0) return '#D3211A';
-    if (s.indexOf('11') >= 0 || s.indexOf('12') >= 0 || s.indexOf('18') >= 0) return '#F26B1D';
+    if (s.indexOf('20') >= 0 || s.indexOf('LOTO') >= 0 || s.indexOf('10') >= 0) return '#D3211A';
     return '#F26B1D';
   }
   function patchDesenharFrenteBadges() {
-    if (typeof window.desenharFrente !== 'function' || window.desenharFrente.__patchedBadges5) return;
+    if (typeof window.desenharFrente !== 'function' || window.desenharFrente.__patchedBadges6) return;
     var prev = window.desenharFrente;
     window.desenharFrente = async function (e, sigla, fotoURL, logoURL, equip) {
       var c = await prev(e, sigla, fotoURL, logoURL, equip);
@@ -177,78 +179,59 @@
         });
         if (!itens.length) return c;
 
-        function corSeg(sig) {
-          try {
-            if (typeof window.corSegurancaDe === 'function') {
-              var cs = window.corSegurancaDe(sig);
-              if (cs && cs.hex) return cs.hex;
-            }
-          } catch (_) {}
-          return corDocLocal(sig);
-        }
-        function corBorda(st) {
-          if (st === 'vencido') return '#e2483a';
-          if (st === 'a_vencer') return '#f2954a';
-          return '#111';
-        }
+        // APT ~452-516 | chips 518-546 | NR-26 em 556-590 | zebra 624-638
+        var cw = 40, ch = 28, gap = 6, padX = 40;
+        var y = 518;
+        var maxX = c.width - 40;
+        var x = padX;
 
-        // multi-linha, acima da zebra (14px)
-        var zebraH = 14;
-        var cw = 48, ch = 44, gap = 8, padX = 20;
-        var maxPorLinha = Math.max(1, Math.floor((c.width - padX * 2 + gap) / (cw + gap)));
-        var linhas = Math.ceil(itens.length / maxPorLinha);
-        var blocoH = linhas * ch + (linhas - 1) * gap;
-        var startY = c.height - zebraH - 8 - blocoH;
-
-        ctx.fillStyle = 'rgba(255,255,255,0.7)';
-        ctx.fillRect(padX - 6, startY - 6, c.width - (padX - 6) * 2, blocoH + 12);
-
-        itens.forEach(function (it, idx) {
-          var row = Math.floor(idx / maxPorLinha);
-          var col = idx % maxPorLinha;
-          var x = padX + col * (cw + gap);
-          var y = startY + row * (ch + gap);
+        itens.forEach(function (it) {
+          if (x + cw > maxX) return;
           var rot = rotuloLocal(it.sigla);
-          var bg = corSeg(it.sigla);
-          var border = corBorda(it.st);
+          var bg = corSegChip(it.sigla);
+          var border = it.st === 'vencido' ? '#e2483a' : (it.st === 'a_vencer' ? '#f2954a' : '#222');
 
-          ctx.fillStyle = 'rgba(0,0,0,0.2)';
-          ctx.fillRect(x + 2, y + 2, cw, ch);
           ctx.fillStyle = bg;
           ctx.strokeStyle = border;
-          ctx.lineWidth = 3;
-          ctx.beginPath(); ctx.rect(x, y, cw, ch); ctx.fill(); ctx.stroke();
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.rect(x, y, cw, ch);
+          ctx.fill();
+          ctx.stroke();
 
           ctx.fillStyle = '#111';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           if (rot.bottom) {
+            ctx.font = '700 8px monospace';
+            ctx.fillText(rot.top, x + cw / 2, y + 9);
             ctx.font = '800 11px monospace';
-            ctx.fillText(rot.top, x + cw / 2, y + 13);
-            ctx.font = '900 16px monospace';
-            ctx.fillText(rot.bottom, x + cw / 2, y + 30);
+            ctx.fillText(rot.bottom, x + cw / 2, y + 20);
           } else {
-            ctx.font = '900 14px monospace';
+            ctx.font = '800 11px monospace';
             ctx.fillText(rot.top, x + cw / 2, y + ch / 2 + 1);
           }
           ctx.textAlign = 'left';
+          x += cw + gap;
         });
       } catch (_) {}
       return c;
     };
-    window.desenharFrente.__patchedBadges5 = true;
+    window.desenharFrente.__patchedBadges6 = true;
   }
 
   function patchHistoricoDelete() {
     var list = document.getElementById('historicoList');
-    if (!list || list.__histDelPatched) return;
-    list.__histDelPatched = true;
+    if (!list) return;
+    if (list.__histDelV11) return;
+    list.__histDelV11 = true;
     list.addEventListener('click', async function (ev) {
       var btn = ev.target.closest('[data-del-historico]');
       if (!btn) return;
       ev.preventDefault();
       ev.stopPropagation();
-      var id = btn.dataset.delHistorico;
+      if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+      var id = btn.getAttribute('data-del-historico') || btn.dataset.delHistorico;
       if (!id) return;
       if (!confirm('Mover este registro para a lixeira? Dá pra restaurar depois.')) return;
       try {
@@ -258,7 +241,11 @@
         else alert('Registro apagado.');
       } catch (err) {
         var msg = (err && err.message) || String(err);
-        if (msg === 'nao_encontrado') msg = 'Não encontrado (já apagado ou de outra empresa).';
+        if (msg === 'nao_encontrado' || msg === 'not_found') {
+          try { if (typeof window.refreshData === 'function') await window.refreshData(); } catch (_) {}
+          if (typeof window.showToast === 'function') window.showToast('Registro atualizado.');
+          return;
+        }
         if (msg === 'somente_admin') msg = 'Somente administrador pode apagar histórico.';
         if (typeof window.showToast === 'function') window.showToast('Não foi possível apagar: ' + msg, 'error');
         else alert('Não foi possível apagar: ' + msg);
@@ -518,7 +505,7 @@
       el.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:99999;font-size:10px;opacity:0.55;background:#111;color:#9f9;padding:2px 6px;border-radius:4px;pointer-events:none;';
       document.body.appendChild(el);
     }
-    el.textContent = 'patch v10';
+    el.textContent = 'patch v11';
   }
   function boot() {
     showVersionBadge();
@@ -557,5 +544,4 @@
   setTimeout(boot, 500);
   setTimeout(boot, 1500);
   setTimeout(boot, 3000);
-  setTimeout(boot, 6000);
 })();
