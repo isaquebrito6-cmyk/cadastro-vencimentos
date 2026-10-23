@@ -1,4 +1,4 @@
-/* Patch v14: chips so sob a foto (nao sobrepoe APTO); NR + numero */
+/* Patch v15: layout v2 nao cobre a foto; chips so sob a foto (nao sobrepoe APTO); NR + numero */
 (function () {
   var SIG_COLAB_KEY = 'cv_assinatura_colaborador';
   var SIG_RESP_KEY = 'cv_assinatura_responsavel';
@@ -119,6 +119,7 @@
   }
   function patchDesenharFrente() {
     if (typeof window.desenharFrente !== 'function' || window.desenharFrente.__patchedFuncao) return;
+    if (window.desenharFrente.__layoutV2) { window.desenharFrente.__patchedFuncao = true; return; }
     var orig = window.desenharFrente;
     window.desenharFrente = async function (e, sigla, fotoURL, logoURL, equip) {
       var c = await orig(e, sigla, fotoURL, logoURL, equip);
@@ -167,6 +168,7 @@
   }
   function patchDesenharFrenteBadges() {
     if (typeof window.desenharFrente !== 'function' || window.desenharFrente.__patchedBadges9) return;
+    if (window.desenharFrente.__layoutV2) { window.desenharFrente.__patchedBadges9 = true; return; }
     var prev = window.desenharFrente;
     window.desenharFrente = async function (e, sigla, fotoURL, logoURL, equip) {
       var c = await prev(e, sigla, fotoURL, logoURL, equip);
