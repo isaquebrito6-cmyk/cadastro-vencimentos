@@ -1,4 +1,4 @@
-/* Patch v12: foto um pouco menor + icones maiores sob a foto; NR-26 livre */
+/* Patch v13: icones so NR em cima + numero embaixo; maiores */
 (function () {
   var SIG_COLAB_KEY = 'cv_assinatura_colaborador';
   var SIG_RESP_KEY = 'cv_assinatura_responsavel';
@@ -138,15 +138,19 @@
     window.desenharFrente.__patchedFuncao = true;
   }
   function rotuloLocal(sigla) {
-    if (typeof window.rotuloChip === 'function') return window.rotuloChip(sigla);
-    var su = String(sigla).toUpperCase();
-    if (su === 'ASO') return { top: 'ASO', bottom: '' };
-    if (su === 'LOTO') return { top: 'NR', bottom: '10/12' };
-    var sem = String(sigla).replace(/^NR-?/i, '').trim();
-    var temSup = /SUP/i.test(sem);
-    var num = sem.replace(/SUP/i, '').trim() || su;
-    if (temSup) num += '+';
-    return { top: 'NR', bottom: num };
+    // Só NR em cima + número embaixo (sem texto longo)
+    var su = String(sigla || '').toUpperCase().trim();
+    if (su === 'ASO' || /ASO/.test(su)) return { top: 'ASO', bottom: '' };
+    if (su === 'LOTO' || /LOTO|BLOQUEIO/.test(su)) return { top: 'NR', bottom: '10/12' };
+    var m = su.match(/NR\s*-?\s*(\d{1,2})/);
+    if (m) {
+      var num = m[1];
+      if (/SUP/.test(su)) num += '+';
+      return { top: 'NR', bottom: num };
+    }
+    var d = su.match(/(\d{1,2})/);
+    if (d) return { top: 'NR', bottom: d[1] };
+    return { top: 'NR', bottom: su.slice(0, 4) };
   }
   function corSegChip(sigla) {
     try {
@@ -156,22 +160,21 @@
       }
     } catch (_) {}
     var s = String(sigla).toUpperCase();
-    if (s === 'ASO') return '#2E8B57';
+    if (s === 'ASO' || /ASO/.test(s)) return '#2E8B57';
     if (s.indexOf('35') >= 0) return '#0A5BB5';
     if (s.indexOf('33') >= 0) return '#F5B800';
     if (s.indexOf('20') >= 0 || s.indexOf('LOTO') >= 0 || s.indexOf('10') >= 0) return '#D3211A';
     return '#F26B1D';
   }
   function patchDesenharFrenteBadges() {
-    if (typeof window.desenharFrente !== 'function' || window.desenharFrente.__patchedBadges7) return;
+    if (typeof window.desenharFrente !== 'function' || window.desenharFrente.__patchedBadges8) return;
     var prev = window.desenharFrente;
     window.desenharFrente = async function (e, sigla, fotoURL, logoURL, equip) {
       var c = await prev(e, sigla, fotoURL, logoURL, equip);
       try {
         var ctx = c.getContext('2d');
-        // Foto original: 40,196 240x320 → base 516. Encolhe 48px por baixo.
         var fx = 40, fy = 196, fw = 240, fh = 320;
-        var shrink = 48;
+        var shrink = 52;
         var fotoBase = fy + fh;
         var novaBase = fotoBase - shrink;
         ctx.fillStyle = '#ffffff';
@@ -190,22 +193,22 @@
         });
         if (!itens.length) return c;
 
-        var cw = 52, ch = 40, gap = 8;
+        var cw = 58, ch = 48, gap = 10;
         var x = fx;
-        var y = novaBase + 6;
-        var maxX = Math.min(c.width - 30, fx + fw + 220);
+        var y = novaBase + 4;
+        var maxX = Math.min(c.width - 30, fx + fw + 240);
 
         itens.forEach(function (it) {
           if (x + cw > maxX) {
             x = fx;
             y += ch + 6;
-            if (y + ch > 548) return;
+            if (y + ch > 552) return;
           }
           var rot = rotuloLocal(it.sigla);
           var bg = corSegChip(it.sigla);
           var border = it.st === 'vencido' ? '#e2483a' : (it.st === 'a_vencer' ? '#f2954a' : '#222');
 
-          ctx.fillStyle = 'rgba(0,0,0,0.18)';
+          ctx.fillStyle = 'rgba(0,0,0,0.2)';
           ctx.fillRect(x + 2, y + 2, cw, ch);
           ctx.fillStyle = bg;
           ctx.strokeStyle = border;
@@ -219,12 +222,12 @@
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           if (rot.bottom) {
-            ctx.font = '800 10px monospace';
-            ctx.fillText(rot.top, x + cw / 2, y + 12);
-            ctx.font = '900 15px monospace';
-            ctx.fillText(rot.bottom, x + cw / 2, y + 28);
+            ctx.font = '800 12px monospace';
+            ctx.fillText(rot.top, x + cw / 2, y + 14);
+            ctx.font = '900 18px monospace';
+            ctx.fillText(rot.bottom, x + cw / 2, y + 34);
           } else {
-            ctx.font = '900 14px monospace';
+            ctx.font = '900 16px monospace';
             ctx.fillText(rot.top, x + cw / 2, y + ch / 2 + 1);
           }
           ctx.textAlign = 'left';
@@ -233,7 +236,7 @@
       } catch (_) {}
       return c;
     };
-    window.desenharFrente.__patchedBadges7 = true;
+    window.desenharFrente.__patchedBadges8 = true;
   }
 
   function patchHistoricoDelete() {
@@ -520,7 +523,7 @@
       el.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:99999;font-size:10px;opacity:0.55;background:#111;color:#9f9;padding:2px 6px;border-radius:4px;pointer-events:none;';
       document.body.appendChild(el);
     }
-    el.textContent = 'patch v12';
+    el.textContent = 'patch v13';
   }
   function boot() {
     showVersionBadge();
