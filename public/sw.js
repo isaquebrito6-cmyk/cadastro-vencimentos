@@ -1,5 +1,5 @@
-const CACHE_NAME = 'vencimentos-cache-v21';
-const PATCH_URL = '/carteirinha-patch.js?v=21';
+const CACHE_NAME = 'vencimentos-cache-v22';
+const PATCH_URL = '/carteirinha-patch.js?v=22';
 const APP_SHELL = ['/', '/index.html', '/manifest.json', '/icon-512.png', '/icon-180.png'];
 const PATCH_TAG = '<script src="' + PATCH_URL + '"></script>';
 
@@ -23,7 +23,6 @@ function injetarPatch(response) {
   const ct = response.headers.get('content-type') || '';
   if (!ct.includes('text/html')) return response;
   return response.text().then((html) => {
-    // Remove scripts antigos do patch e injeta com cache-buster
     html = html.replace(/<script[^>]*carteirinha-patch\.js[^>]*><\/script>/g, '');
     if (html.includes('</body>')) {
       html = html.replace('</body>', PATCH_TAG + '\n</body>');
@@ -43,7 +42,6 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/api/')) return;
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
 
-  // Patch JS: sempre rede (nunca cache antigo)
   if (url.pathname.indexOf('carteirinha-patch.js') !== -1) {
     event.respondWith(
       fetch(event.request, { cache: 'no-store' }).catch(() => caches.match(event.request))
