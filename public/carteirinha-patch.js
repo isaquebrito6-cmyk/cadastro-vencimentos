@@ -1,4 +1,4 @@
-/* Patch v15: layout v2 nao cobre a foto; chips so sob a foto (nao sobrepoe APTO); NR + numero */
+/* Patch v16: layout v2 nao cobre a foto; chips so sob a foto (nao sobrepoe APTO); NR + numero */
 (function () {
   var SIG_COLAB_KEY = 'cv_assinatura_colaborador';
   var SIG_RESP_KEY = 'cv_assinatura_responsavel';
@@ -167,6 +167,9 @@
     return '#F26B1D';
   }
   function patchDesenharFrenteBadges() {
+    // Chips ficam no desenho principal, abaixo da faixa APTO. Nunca desenhar por cima da foto.
+    if (typeof window.desenharFrente === 'function') window.desenharFrente.__patchedBadges9 = true;
+    return;
     if (typeof window.desenharFrente !== 'function' || window.desenharFrente.__patchedBadges9) return;
     if (window.desenharFrente.__layoutV2) { window.desenharFrente.__patchedBadges9 = true; return; }
     var prev = window.desenharFrente;
