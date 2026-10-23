@@ -2329,21 +2329,23 @@ function desenharChipsNR(ctx, e, x, y, w, h){
   const docs = e.docs || {};
   const itens = Object.keys(docs).filter(s => docs[s] && statusFor(docs[s]) !== 'sem_registro');
   if(!itens.length) return;
-  const gap = 8, ch = Math.min(46, h - 8);
-  const por = Math.max(1, Math.min(itens.length, Math.floor((w + gap) / 56)));
-  const cw = Math.min(58, Math.floor((w - gap * (por - 1)) / por));
-  let col = 0, cy = y + Math.max(0, (h - ch) / 2);
-  itens.slice(0, por * 2).forEach(s => {
+  ctx.fillStyle = '#6B747C'; ctx.font = `600 13px ${FONTE_TXT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText('TREINAMENTOS', x, y + 14);
+  const gap = 8, ch = 40, top = y + 22;
+  const por = Math.max(1, Math.min(itens.length, 12));
+  const cw = Math.min(72, Math.floor((w - gap * (por - 1)) / por));
+  let col = 0, cy = top;
+  itens.forEach(s => {
     if(col >= por){ col = 0; cy += ch + 6; if(cy + ch > y + h) return; }
     const cx = x + col * (cw + gap);
     const st = statusFor(docs[s]);
     const bg = (corSegurancaDe(s) && corSegurancaDe(s).hex) || '#F5B800';
     ctx.fillStyle = bg; cardRound(ctx, cx, cy, cw, ch, 8); ctx.fill();
-    ctx.lineWidth = 3; ctx.strokeStyle = st === 'vencido' ? '#7a120e' : (st === 'a_vencer' ? '#8a5a00' : 'rgba(0,0,0,.35)');
+    ctx.lineWidth = 2; ctx.strokeStyle = st === 'vencido' ? '#7a120e' : (st === 'a_vencer' ? '#8a5a00' : 'rgba(0,0,0,.28)');
     cardRound(ctx, cx, cy, cw, ch, 8); ctx.stroke();
-    const rot = String(s).replace(/^NR\s*-?\s*/i, '').slice(0, 6);
+    const rot = String(s).replace(/\s+/g, ' ').slice(0, 8);
     ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = `800 ${rot.length > 4 ? 13 : 16}px ${FONTE_CARD}`;
+    ctx.font = `800 ${rot.length > 5 ? 12 : 15}px ${FONTE_CARD}`;
     ctx.fillText(rot, cx + cw/2, cy + ch/2 + 1);
     col++;
   });
@@ -2358,98 +2360,100 @@ async function desenharFrente(e, sigla, fotoURL, logoURL, equip){
   const c = cardCanvas(), ctx = c.getContext('2d');
   cardBase(ctx);
 
-  const HEADER = 122;
+  const HEADER = 118;
   ctx.fillStyle = cor.hex; ctx.fillRect(0, 0, CARD_W, HEADER);
-  cardZebra(ctx, 0, HEADER, CARD_W, 12);
-  cardLogo(ctx, logoImg, 22, 12, 98, 98, emp);
+  cardZebra(ctx, 0, HEADER, CARD_W, 10);
+  cardLogo(ctx, logoImg, 20, 12, 94, 94, emp);
 
   ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = '#fff'; cardRound(ctx, CARD_W - 250, 28, 222, 68, 12); ctx.fill();
+  ctx.fillStyle = '#fff'; cardRound(ctx, CARD_W - 236, 26, 208, 64, 12); ctx.fill();
   ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  cardAjustaFonte(ctx, sigla, 700, 36, 18, 198, FONTE_CARD);
-  ctx.fillText(sigla, CARD_W - 250 + 111, 62);
+  cardAjustaFonte(ctx, sigla, 700, 32, 16, 184, FONTE_CARD);
+  ctx.fillText(sigla, CARD_W - 236 + 104, 58);
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
 
-  const xT = 138, wT = CARD_W - 250 - 20 - xT;
+  const xT = 130, wT = CARD_W - 236 - 16 - xT;
   ctx.fillStyle = cor.texto;
-  const sub = emp + '  ·  SST';
-  cardAjustaFonte(ctx, sub, 500, 20, 12, wT, FONTE_CARD); ctx.fillText(sub, xT, 48);
-  cardAjustaFonte(ctx, titularCarteira(sigla), 700, 34, 18, wT, FONTE_CARD); ctx.fillText(titularCarteira(sigla), xT, 92);
+  cardAjustaFonte(ctx, emp + '  ·  SST', 500, 18, 12, wT, FONTE_CARD); ctx.fillText(emp + '  ·  SST', xT, 46);
+  cardAjustaFonte(ctx, titularCarteira(sigla), 700, 30, 16, wT, FONTE_CARD); ctx.fillText(titularCarteira(sigla), xT, 86);
 
-  const fx = 28, fy = 158, fw = 248, fh = 332;
-  ctx.fillStyle = '#e8ecef'; cardRound(ctx, fx, fy, fw, fh, 16); ctx.fill();
-  ctx.save(); cardRound(ctx, fx, fy, fw, fh, 16); ctx.clip();
+  // Foto limpa — sem chips por cima
+  const fx = 24, fy = 146, fw = 236, fh = 268;
+  ctx.fillStyle = '#e8ecef'; cardRound(ctx, fx, fy, fw, fh, 14); ctx.fill();
+  ctx.save(); cardRound(ctx, fx, fy, fw, fh, 14); ctx.clip();
   if(fotoImg) desenharFotoCover(ctx, fotoImg, fx, fy, fw, fh);
   else {
     ctx.fillStyle = '#c5ced6';
-    ctx.beginPath(); ctx.arc(fx+fw/2, fy+118, 58, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(fx+fw/2, fy+268, 100, 78, 0, Math.PI, 0); ctx.fill();
-    ctx.fillStyle = '#5c6770'; ctx.font = `600 18px ${FONTE_TXT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-    ctx.fillText('SEM FOTO', fx+fw/2, fy+fh-16);
+    ctx.beginPath(); ctx.arc(fx+fw/2, fy+96, 50, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(fx+fw/2, fy+210, 88, 64, 0, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = '#5c6770'; ctx.font = `600 16px ${FONTE_TXT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText('SEM FOTO', fx+fw/2, fy+fh-14);
   }
   ctx.restore();
-  ctx.lineWidth = 7; ctx.strokeStyle = cor.hex; cardRound(ctx, fx, fy, fw, fh, 16); ctx.stroke();
+  ctx.lineWidth = 6; ctx.strokeStyle = cor.hex; cardRound(ctx, fx, fy, fw, fh, 14); ctx.stroke();
 
-  const x = 304, maxW = CARD_W - x - 28;
-  let y = 188;
-  ctx.fillStyle = '#6B747C'; ctx.font = `600 16px ${FONTE_TXT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  const x = 284, maxW = CARD_W - x - 24;
+  let y = 168;
+  ctx.fillStyle = '#6B747C'; ctx.font = `600 15px ${FONTE_TXT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   ctx.fillText('NOME', x, y);
   ctx.fillStyle = '#111';
   const nomeUp = String(e.nome || '').toUpperCase();
-  cardAjustaFonte(ctx, nomeUp, 700, 36, 22, maxW, FONTE_CARD);
+  cardAjustaFonte(ctx, nomeUp, 700, 32, 20, maxW, FONTE_CARD);
   let linhas = [nomeUp];
   if(ctx.measureText(nomeUp).width > maxW){
-    ctx.font = `700 26px ${FONTE_CARD}`;
+    ctx.font = `700 24px ${FONTE_CARD}`;
     linhas = cardQuebra(ctx, nomeUp, maxW, 2);
   }
-  const passoNome = linhas.length > 1 ? 30 : 0;
-  linhas.forEach((l, i) => ctx.fillText(l, x, y + 36 + i*passoNome));
-  y += 36 + (linhas.length - 1) * passoNome + 28;
+  const passoNome = linhas.length > 1 ? 26 : 0;
+  linhas.forEach((l, i) => ctx.fillText(l, x, y + 30 + i*passoNome));
+  y += 30 + (linhas.length - 1) * passoNome + 22;
 
   const funcao = e.funcao ? String(e.funcao).trim() : '';
   if(funcao){
-    ctx.fillStyle = '#6B747C'; ctx.font = `600 16px ${FONTE_TXT}`; ctx.fillText('FUNÇÃO', x, y);
+    ctx.fillStyle = '#6B747C'; ctx.font = `600 14px ${FONTE_TXT}`; ctx.fillText('FUNÇÃO', x, y);
     ctx.fillStyle = '#111';
     const fu = funcao.toUpperCase();
-    cardAjustaFonte(ctx, fu, 600, 22, 14, maxW, FONTE_CARD);
-    ctx.fillText(fu, x, y + 26);
-    y += 48;
+    cardAjustaFonte(ctx, fu, 600, 20, 13, maxW, FONTE_CARD);
+    ctx.fillText(fu, x, y + 22);
+    y += 40;
   }
 
-  ctx.fillStyle = '#6B747C'; ctx.font = `600 16px ${FONTE_TXT}`;
+  ctx.fillStyle = '#6B747C'; ctx.font = `600 14px ${FONTE_TXT}`;
   ctx.fillText(equip ? 'TREINAMENTO · EQUIPAMENTO' : 'TREINAMENTO', x, y);
   const nomeTrein = (DOC_TYPES[sigla] && DOC_TYPES[sigla].nome) || sigla;
   const textoTrein = (nomeTrein && nomeTrein !== sigla ? nomeTrein : sigla) + (equip ? '  ·  ' + equip : '');
   ctx.fillStyle = '#111';
-  cardAjustaFonte(ctx, textoTrein, 600, 24, 15, maxW, FONTE_CARD);
-  ctx.fillText(textoTrein, x, y + 30);
-  y += 62;
+  cardAjustaFonte(ctx, textoTrein, 600, 22, 14, maxW, FONTE_CARD);
+  ctx.fillText(textoTrein, x, y + 26);
+  y += 50;
 
   const colW = maxW / 2;
   [['VALIDADE ' + sigla, e.docs[sigla]], ['VALIDADE ASO', e.docs['ASO']]].forEach(([rot, data], i) => {
     const cx = x + i * colW;
-    ctx.fillStyle = '#6B747C'; ctx.font = `600 15px ${FONTE_TXT}`;
+    ctx.fillStyle = '#6B747C'; ctx.font = `600 13px ${FONTE_TXT}`;
     ctx.fillText(cardQuebra(ctx, rot, colW - 8, 1)[0], cx, y);
     const st = statusFor(data);
     ctx.fillStyle = st === 'vencido' ? COR_STATUS.vencido : '#111';
     const dt = data ? fmtDate(data) : 'NÃO INFORMADO';
-    cardAjustaFonte(ctx, dt, 700, 32, 18, colW - 10, FONTE_CARD);
-    ctx.fillText(dt, cx, y + 36);
+    cardAjustaFonte(ctx, dt, 700, 26, 16, colW - 8, FONTE_CARD);
+    ctx.fillText(dt, cx, y + 28);
   });
 
-  const by = 500, bh = 58;
+  const by = 424, bh = 48;
   ctx.fillStyle = apt.apto ? COR_STATUS.valido : COR_STATUS.vencido;
-  cardRound(ctx, x, by, maxW, bh, 12); ctx.fill();
+  cardRound(ctx, 24, by, CARD_W - 48, bh, 10); ctx.fill();
   ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const txtApto = apt.apto ? 'APTO PARA ATIVIDADE' : 'NÃO APTO — ' + apt.motivo;
-  cardAjustaFonte(ctx, txtApto, 700, 26, 14, maxW - 24, FONTE_CARD);
-  ctx.fillText(txtApto, x + maxW/2, by + bh/2 + 1);
+  cardAjustaFonte(ctx, txtApto, 700, 24, 14, CARD_W - 80, FONTE_CARD);
+  ctx.fillText(txtApto, CARD_W/2, by + bh/2 + 1);
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
 
+  desenharChipsNR(ctx, e, 24, by + bh + 6, CARD_W - 48, 78);
+
   ctx.fillStyle = '#f3f4f6'; ctx.fillRect(0, 572, CARD_W, CARD_H - 572);
-  ctx.fillStyle = cor.hex; ctx.fillRect(28, 586, 22, 22);
-  ctx.fillStyle = '#333'; ctx.font = `500 16px ${FONTE_TXT}`;
-  ctx.fillText('NR-26  ·  ' + cor.nome + '  ·  ' + cor.uso, 60, 604);
+  ctx.fillStyle = cor.hex; ctx.fillRect(24, 588, 18, 18);
+  ctx.fillStyle = '#333'; ctx.font = `500 15px ${FONTE_TXT}`;
+  ctx.fillText('NR-26  ·  ' + cor.nome + '  ·  ' + cor.uso, 52, 602);
   cardZebra(ctx, 0, CARD_H - 12, CARD_W, 12);
   return c;
 }
