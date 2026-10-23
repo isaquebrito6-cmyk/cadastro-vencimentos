@@ -1,5 +1,5 @@
-const CACHE_NAME = 'vencimentos-cache-v25';
-const PATCH_URL = '/carteirinha-patch.js?v=25';
+const CACHE_NAME = 'vencimentos-cache-v26';
+const PATCH_URL = '/carteirinha-patch.js?v=26';
 const APP_SHELL = ['/', '/index.html', '/manifest.json', '/icon-512.png', '/icon-180.png'];
 const PATCH_TAG = '<script src="' + PATCH_URL + '"></script>';
 
