@@ -1,29 +1,21 @@
-const CACHE_NAME = 'vencimentos-cache-v32';
-const CACHE_BUST = 'v32';
-const PATCH_URL = '/carteirinha-patch.js?v=' + CACHE_BUST;
+const CACHE_NAME = 'vencimentos-cache-v30';
+const PATCH_URL = '/carteirinha-patch.js?v=30';
 const APP_SHELL = ['/', '/index.html', '/manifest.json', '/icon-512.png', '/icon-180.png'];
 const PATCH_TAG = '<script src="' + PATCH_URL + '"></script>';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(APP_SHELL).catch(() => {}))
-      .then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL).catch(() => {}))
   );
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim())
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+    ).then(() => self.clients.claim())
   );
-});
-
-self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
 });
 
 function injetarPatch(response) {
@@ -51,7 +43,9 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
 
   if (url.pathname.indexOf('carteirinha-patch.js') !== -1) {
-    event.respondWith(fetch(event.request, { cache: 'no-store' }).catch(() => caches.match(event.request)));
+    event.respondWith(
+      fetch(event.request, { cache: 'no-store' }).catch(() => caches.match(event.request))
+    );
     return;
   }
 
@@ -61,23 +55,19 @@ self.addEventListener('fetch', (event) => {
       fetch(event.request, { cache: 'no-store' })
         .then((response) => injetarPatch(response))
         .catch(() =>
-          caches.match(event.request)
-            .then((c) => c || caches.match('/index.html'))
-            .then((c) => injetarPatch(c || new Response('Offline', { status: 503 })))
+          caches.match(event.request).then((c) => c || caches.match('/index.html')).then((c) => injetarPatch(c || new Response('Offline', { status: 503 })))
         )
     );
     return;
   }
 
   event.respondWith(
-    fetch(event.request, { cache: 'no-store' })
-      .then((response) => {
-        if (response.ok) {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-        }
-        return response;
-      })
-      .catch(() => caches.match(event.request))
+    fetch(event.request).then((response) => {
+      if (response.ok) {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+      }
+      return response;
+    }).catch(() => caches.match(event.request))
   );
 });
