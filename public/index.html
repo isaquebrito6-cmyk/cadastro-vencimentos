@@ -948,7 +948,33 @@ async function loadInitial(){
   updateSaveIndicator('Conectado');
 }
 
+let ESTADO_RESTAURADO = false;
+function restaurarEstadoUI(){            // só na 1ª carga: reabre a edição e devolve a rolagem salva
+  if(ESTADO_RESTAURADO) return null;
+  ESTADO_RESTAURADO = true;
+  try{
+    const st = JSON.parse(sessionStorage.getItem('estadoUI') || 'null');
+    if(st && (!st.emp || !EMPRESA_ATUAL || st.emp === EMPRESA_ATUAL.id)){
+      if(st.id && DATA.some(x => x.id === st.id)){ openEditId = st.id; renderTable(); }
+      return st.y || 0;
+    }
+  }catch(_){}
+  return null;
+}
+function rolarPara(y){ const f = () => window.scrollTo(0, y); f(); requestAnimationFrame(f); setTimeout(f, 250); }
+function salvarEstadoUI(){
+  if(!ESTADO_RESTAURADO) return;
+  try{ sessionStorage.setItem('estadoUI', JSON.stringify({id: openEditId || null, y: Math.round(window.scrollY), emp: EMPRESA_ATUAL ? EMPRESA_ATUAL.id : null})); }catch(_){}
+}
+(function(){
+  let t = null;
+  window.addEventListener('scroll', () => { clearTimeout(t); t = setTimeout(salvarEstadoUI, 150); }, {passive:true});
+  window.addEventListener('pagehide', salvarEstadoUI);
+  document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden') salvarEstadoUI(); });
+  try{ if('scrollRestoration' in history) history.scrollRestoration = 'manual'; }catch(_){}
+})();
 async function refreshData(){
+  const yAntes = window.scrollY;
   const data = await apiFetch('/api/data');
   CERTS = data.certificados || [];
   FOTOS = {}; (data.fotos || []).forEach(f => { FOTOS[f.colaborador_id] = f.atualizado_em; });
@@ -972,6 +998,8 @@ async function refreshData(){
   renderHistorico();
   refreshDocFilterOptions();
   renderSeletorEmpresa();
+  const alvoY = restaurarEstadoUI();
+  rolarPara(alvoY != null ? alvoY : yAntes);
 }
 
 async function persistConfig(chave, valor){
@@ -1439,7 +1467,7 @@ function renderTable(){
 
   tbody.querySelectorAll('[data-edit]').forEach(btn => btn.addEventListener('click', () => {
     openEditId = openEditId === btn.dataset.edit ? null : btn.dataset.edit;
-    renderTable();
+    renderTable(); salvarEstadoUI();
     if(openEditId){
       const nomeField = document.getElementById(`fld-nome-${openEditId}`);
       if(nomeField){ nomeField.focus(); nomeField.select(); }
@@ -2412,37 +2440,37 @@ function rotuloIcone(sigla){
   }
   return {top: su.slice(0, 5), bottom: ''};
 }
-// Linha de ícones (um por documento com data), em faixa própria: nunca encosta na foto nem no selo.
-function desenharIcones(ctx, e, sigla, y, h){
-  const itens = ['ASO', ...DOC_ORDER.filter(s => s !== 'ASO')].filter(s => e.docs[s]);
+// Ícones dos documentos: grade sob a foto, dentro da moldura (layout aprovado). Retorna a altura usada.
+function listaIcones(e){ return ['ASO', ...DOC_ORDER.filter(s => s !== 'ASO')].filter(s => e.docs[s]); }
+function desenharIcones(ctx, e, sigla, x0, y0, areaW, ch){
+  const itens = listaIcones(e);
   if(!itens.length) return;
-  const x0 = 40, areaW = CARD_W - 80;
-  let cw = 64, gap = 8;
-  if(itens.length * (cw + gap) - gap > areaW){        // muitos documentos: encolhe os ícones para caberem todos
-    gap = 6; cw = Math.max(46, Math.floor((areaW - gap * (itens.length - 1)) / itens.length));
-  }
-  const porLinha = Math.floor((areaW + gap) / (cw + gap));
-  const mostrar = itens.length > porLinha ? itens.slice(0, porLinha - 1) : itens;
+  const gap = 8, porLinha = itens.length > 6 ? 4 : 3, maxLinhas = 3;
+  const cw = Math.floor((areaW - gap * (porLinha - 1)) / porLinha);
+  const cap = porLinha * maxLinhas;
+  const mostrar = itens.length > cap ? itens.slice(0, cap - 1) : itens;
   const ocultos = itens.length - mostrar.length;
-  mostrar.forEach((s, i) => {
-    const x = x0 + i * (cw + gap), st = statusFor(e.docs[s]), cs = corSegurancaDe(s), rot = rotuloIcone(s);
-    ctx.fillStyle = cs.hex; cardRound(ctx, x, y, cw, h, 9); ctx.fill();
-    ctx.lineWidth = s === sigla ? 6 : 4;
+  const celulas = mostrar.length + (ocultos > 0 ? 1 : 0);
+  for(let i = 0; i < celulas; i++){
+    const x = x0 + (i % porLinha) * (cw + gap), y = y0 + Math.floor(i / porLinha) * (ch + 6), h = ch;
+    if(i >= mostrar.length){
+      ctx.fillStyle = '#E9ECEF'; cardRound(ctx, x, y, cw, h, 8); ctx.fill();
+      ctx.fillStyle = '#333'; ctx.font = `700 20px ${FONTE_CARD}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('+' + ocultos, x + cw/2, y + h/2 + 1);
+      continue;
+    }
+    const s = mostrar[i], st = statusFor(e.docs[s]), cs = corSegurancaDe(s), rot = rotuloIcone(s);
+    ctx.fillStyle = cs.hex; cardRound(ctx, x, y, cw, h, 8); ctx.fill();
+    ctx.lineWidth = s === sigla ? 5 : 3;
     ctx.strokeStyle = st === 'vencido' ? COR_STATUS.vencido : (st === 'a_vencer' ? '#B26A00' : (s === sigla ? '#111' : 'rgba(0,0,0,.45)'));
-    cardRound(ctx, x + 2, y + 2, cw - 4, h - 4, 8); ctx.stroke();
+    cardRound(ctx, x + 2, y + 2, cw - 4, h - 4, 7); ctx.stroke();
     ctx.fillStyle = cs.texto; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     if(rot.bottom){
-      cardAjustaFonte(ctx, rot.top, 600, 15, 10, cw - 14, FONTE_TXT); ctx.fillText(rot.top, x + cw/2, y + h*0.30);
-      cardAjustaFonte(ctx, rot.bottom, 700, 24, 12, cw - 12, FONTE_CARD); ctx.fillText(rot.bottom, x + cw/2, y + h*0.68);
+      cardAjustaFonte(ctx, rot.top, 600, 13, 9, cw - 12, FONTE_TXT); ctx.fillText(rot.top, x + cw/2, y + h*0.30);
+      cardAjustaFonte(ctx, rot.bottom, 700, 22, 11, cw - 10, FONTE_CARD); ctx.fillText(rot.bottom, x + cw/2, y + h*0.68);
     } else {
-      cardAjustaFonte(ctx, rot.top, 700, 26, 12, cw - 12, FONTE_CARD); ctx.fillText(rot.top, x + cw/2, y + h/2 + 1);
+      cardAjustaFonte(ctx, rot.top, 700, 22, 11, cw - 10, FONTE_CARD); ctx.fillText(rot.top, x + cw/2, y + h/2 + 1);
     }
-  });
-  if(ocultos > 0){
-    const x = x0 + mostrar.length * (cw + gap);
-    ctx.fillStyle = '#E9ECEF'; cardRound(ctx, x, y, cw, h, 9); ctx.fill();
-    ctx.fillStyle = '#333'; ctx.font = `700 22px ${FONTE_CARD}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('+' + ocultos, x + cw/2, y + h/2 + 1);
   }
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
 }
@@ -2469,7 +2497,10 @@ async function desenharFrente(e, sigla, fotoURL, logoURL){
   const sub = emp + '  ·  SEGURANÇA DO TRABALHO';
   cardAjustaFonte(ctx, sub, 500, 24, 14, wT, FONTE_CARD); ctx.fillText(sub, xT, 56);
   cardAjustaFonte(ctx, titularCarteira(sigla), 700, 54, 28, wT, FONTE_CARD); ctx.fillText(titularCarteira(sigla), xT, 114);
-  const fx = 40, fy = 196, fw = 240, fh = 320;
+  const fx = 40, fy = 196, fw = 240, fhTotal = 320, CH = 44;
+  const nIc = listaIcones(e).length, porL = nIc > 6 ? 4 : 3;
+  const linIc = Math.min(3, Math.ceil(nIc / porL));
+  const fh = nIc ? fhTotal - (linIc * (CH + 6) + 6) : fhTotal;
   ctx.fillStyle = '#E9ECEF'; ctx.fillRect(fx, fy, fw, fh);
   if(fotoImg){
     // recorta no formato 3:4 (rosto costuma ficar na parte de cima) em vez de esticar a imagem
@@ -2484,7 +2515,8 @@ async function desenharFrente(e, sigla, fotoURL, logoURL){
     ctx.beginPath(); ctx.ellipse(fx+fw/2, fy+260, 96, 80, 0, Math.PI, 0); ctx.fill();
     ctx.fillStyle = '#6B747C'; ctx.font = `500 20px ${FONTE_TXT}`; ctx.textAlign = 'center'; ctx.fillText('SEM FOTO', fx+fw/2, fy+fh-14); ctx.textAlign = 'left';
   }
-  ctx.lineWidth = 8; ctx.strokeStyle = cor.hex; ctx.strokeRect(fx-4, fy-4, fw+8, fh+8);
+  ctx.lineWidth = 8; ctx.strokeStyle = cor.hex; ctx.strokeRect(fx-4, fy-4, fw+8, fhTotal+8);
+  if(nIc){ ctx.fillStyle = '#fff'; ctx.fillRect(fx, fy + fh, fw, fhTotal - fh); desenharIcones(ctx, e, sigla, fx + 4, fy + fh + 6, fw - 8, CH); }
   // Coluna de dados: posições calculadas em sequência. Se faltar espaço, os intervalos e as fontes encolhem;
   // nada é desenhado por cima de outra coisa.
   const x = 320, maxW = CARD_W - x - 40;
@@ -2515,8 +2547,8 @@ async function desenharFrente(e, sigla, fotoURL, logoURL){
   ctx.fillStyle = '#111'; ctx.font = `700 ${tamNome}px ${FONTE_CARD}`;
   linhas.forEach((l, i) => ctx.fillText(l, x, yNome0 + i*passoNome));
   if(cargo){
-    ctx.fillStyle = '#333'; cardAjustaFonte(ctx, 'CARGO: ' + cargo, 600, 24, 14, maxW, FONTE_CARD);
-    ctx.fillText('CARGO: ' + cargo, x, yCargo);
+    ctx.fillStyle = '#333'; cardAjustaFonte(ctx, 'FUNÇÃO: ' + cargo, 600, 24, 14, maxW, FONTE_CARD);
+    ctx.fillText('FUNÇÃO: ' + cargo, x, yCargo);
   }
   ctx.fillStyle = '#6B747C'; ctx.font = `600 19px ${FONTE_TXT}`;
   ctx.fillText(maquina ? 'TREINAMENTO · TIPO DE MÁQUINA' : 'TREINAMENTO', x, yTrein);
@@ -2550,7 +2582,9 @@ async function desenharFrente(e, sigla, fotoURL, logoURL){
   else { ctx.moveTo(x0 + 5, cyI - 9); ctx.lineTo(x0 + 25, cyI + 9); ctx.moveTo(x0 + 25, cyI - 9); ctx.lineTo(x0 + 5, cyI + 9); }
   ctx.stroke();
   ctx.textBaseline = 'alphabetic';
-  desenharIcones(ctx, e, sigla, 534, 62);
+  ctx.fillStyle = cor.hex; ctx.fillRect(40, 556, 34, 34);
+  ctx.fillStyle = '#333'; ctx.font = `500 21px ${FONTE_TXT}`;
+  ctx.fillText(`Cor de segurança (NR-26): ${cor.nome} — ${cor.uso}`, 88, 580);
   cardZebra(ctx, 0, CARD_H - 14, CARD_W, 14);
   return c;
 }
@@ -2822,6 +2856,7 @@ async function excluirEmpresaAtual(){
 
 let CARTEIRA_ATUAL = null;
 async function abrirCarteira(colabId, sigla){
+  try{ syncOpenEditToData(); }catch(_){}
   const e = DATA.find(x => x.id === colabId);
   if(!e || !e.docs[sigla]) return;
   if(statusFor(e.docs[sigla]) === 'vencido'){ showToast('Treinamento vencido: renove a data para gerar a carteirinha.', 'error'); return; }
@@ -3283,6 +3318,7 @@ async function iniciarApp(){
   document.getElementById('avisoDiasInput').value = CFG.avisoDias;
   refreshDocFilterOptions();
   renderAll();
+  { const y0 = restaurarEstadoUI(); if(y0 != null) rolarPara(y0); }
   checarNotificacaoNavegador();
   setInterval(checarNotificacaoNavegador, 60 * 60 * 1000); // reavalia a cada hora em sessões longas
   const thNome = document.querySelector('thead th[data-key="nome"] .arrow');
