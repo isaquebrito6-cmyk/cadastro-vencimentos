@@ -2539,7 +2539,7 @@ async function desenharFrente(e, sigla, fotoURL, logoURL){
     yCargo = cargo ? y + 28 : 0; if(cargo) y = yCargo;
     yTrein = y + gap;                    // rótulo "TREINAMENTO"
     yLabelValid = yTrein + 32 + gap;     // rótulo "VALIDADE ..."
-    return yLabelValid + tamData;        // linha de base das datas
+    return yLabelValid + 8 + tamData;    // linha de base das datas
   };
   while(calcula() > LIMITE && gap > 24) gap -= 2;
   while(calcula() > LIMITE && tamData > 32) tamData -= 2;
@@ -2566,7 +2566,7 @@ async function desenharFrente(e, sigla, fotoURL, logoURL){
     const txt = data ? fmtDate(data) : 'NÃO INFORMADO';
     ctx.fillStyle = statusFor(data) === 'vencido' ? COR_STATUS.vencido : '#111';
     cardAjustaFonte(ctx, txt, 700, tamData, 20, colW - 14, FONTE_CARD);
-    ctx.fillText(txt, cx, yLabelValid + tamData);
+    ctx.fillText(txt, cx, yLabelValid + 8 + tamData);
   });
   // selo de aptidão, com ícone desenhado (não depende de fonte do aparelho)
   ctx.fillStyle = apt.apto ? COR_STATUS.valido : COR_STATUS.vencido; cardRound(ctx, x, BADGE_Y, maxW, BADGE_H, 12); ctx.fill();

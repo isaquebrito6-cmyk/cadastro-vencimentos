@@ -1,6 +1,6 @@
-name = "cadastro-vencimentos-cf"
+name = "cadastro-vencimentos-c"
 main = "worker.js"
-compatibility_date = "2026-01-01"
+compatibility_date = "2024-09-23"
 
 [assets]
 directory = "./public"
