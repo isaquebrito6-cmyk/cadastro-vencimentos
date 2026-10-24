@@ -854,7 +854,7 @@ function encerrarSessao(){
   AUTH_ROLE = null;
   clearTimeout(_timerAvisoSessao);
   clearTimeout(_timerFimSessao);
-  try{ window.localStorage.removeItem('auth_token_v1'); }catch(err){ /* nada */ }
+  try{ window.localStorage.removeItem('auth_token_v1'); window.localStorage.removeItem('estadoUI_v2'); }catch(err){ /* nada */ }
   mostrarTelaLogin();
 }
 
@@ -955,28 +955,99 @@ async function loadInitial(){
 }
 
 let ESTADO_RESTAURADO = false;
-function restaurarEstadoUI(){            // só na 1ª carga: reabre a edição e devolve a rolagem salva
-  if(ESTADO_RESTAURADO) return null;
-  ESTADO_RESTAURADO = true;
+const ESTADO_CHAVE = 'estadoUI_v2', ESTADO_VALIDADE_MS = 12 * 3600 * 1000;
+let RASCUNHO_ID = null, RASCUNHO_ULTIMO = null;   // edição com texto digitado e ainda não salvo
+
+function lerEstadoUI(){
   try{
-    const st = JSON.parse(sessionStorage.getItem('estadoUI') || 'null');
-    if(st && (!st.emp || !EMPRESA_ATUAL || st.emp === EMPRESA_ATUAL.id)){
-      if(st.id && DATA.some(x => x.id === st.id)){ openEditId = st.id; renderTable(); }
-      return st.y || 0;
-    }
+    const st = JSON.parse(localStorage.getItem(ESTADO_CHAVE) || 'null');
+    if(st && st.user === AUTH_USERNAME && Date.now() - st.t < ESTADO_VALIDADE_MS) return st;
   }catch(_){}
   return null;
 }
-function rolarPara(y){ const f = () => window.scrollTo(0, y); f(); requestAnimationFrame(f); setTimeout(f, 250); }
+// Lê o que está digitado na ficha aberta (nome, observações, cargo, máquinas e datas).
+function coletarRascunho(){
+  const id = openEditId;
+  if(!id) return null;
+  const nomeEl = document.getElementById(`fld-nome-${id}`);
+  if(!nomeEl) return RASCUNHO_ULTIMO;    // ficha fora da tela (filtro): mantém o último texto lido
+  const v = nome => { const el = document.getElementById(`${nome}-${id}`); return el ? el.value : ''; };
+  const docs = {};
+  DOC_ORDER.forEach(sg => { const el = document.getElementById(`fld-doc-${id}-${sg}`); if(el) docs[sg] = el.value || ''; });
+  RASCUNHO_ULTIMO = {nome: nomeEl.value, notas: v('fld-notas'), cargo: v('fld-cargo'), maquina: v('fld-maquina'), docs};
+  return RASCUNHO_ULTIMO;
+}
+function aplicarRascunho(e, d){
+  if(d.nome && d.nome.trim()) e.nome = d.nome.trim();
+  e.notas = d.notas ? d.notas.split(',').map(x => x.trim()).filter(Boolean) : [];
+  EXTRAS[e.id] = {cargo: d.cargo || '', maquina: d.maquina || ''};
+  Object.keys(d.docs || {}).forEach(sg => { if(sg in e.docs) e.docs[sg] = d.docs[sg] || null; });
+}
+function atualizarSetasOrdenacao(){
+  document.querySelectorAll('thead th[data-key]').forEach(th => {
+    const ativo = th.dataset.key === sortKey, seta = th.querySelector('.arrow');
+    if(seta) seta.textContent = ativo ? (sortDir === 1 ? '▲' : '▼') : '';
+    if(ativo) th.setAttribute('aria-sort', sortDir === 1 ? 'ascending' : 'descending'); else th.removeAttribute('aria-sort');
+  });
+}
+// Só na 1ª carga: devolve filtros, ordenação, a ficha aberta (com o texto não salvo) e a rolagem.
+function restaurarEstadoUI(){
+  if(ESTADO_RESTAURADO) return null;
+  ESTADO_RESTAURADO = true;
+  const st = lerEstadoUI();
+  if(!st || (st.emp && EMPRESA_ATUAL && st.emp !== EMPRESA_ATUAL.id)) return null;
+  try{
+    const q = document.getElementById('searchInput'), sf = document.getElementById('statusFilter'), df = document.getElementById('docFilter');
+    if(q && typeof st.q === 'string') q.value = st.q;
+    if(sf && typeof st.status === 'string') sf.value = st.status;
+    if(df && typeof st.doc === 'string' && Array.from(df.options).some(o => o.value === st.doc)) df.value = st.doc;
+    if(['nome', 'status_geral', 'proxVenc'].includes(st.sortKey)){ sortKey = st.sortKey; sortDir = st.sortDir === -1 ? -1 : 1; }
+    atualizarSetasOrdenacao();
+    if(st.id){
+      let e = DATA.find(x => x.id === st.id);
+      if(!e && st.novo && st.draft){              // colaborador novo, ainda não salvo
+        const docs = {}; DOC_ORDER.forEach(sg => docs[sg] = null);
+        e = {id: st.id, nome: 'Novo colaborador', notas: [], docs, _novo: true};
+        DATA.push(e);
+      }
+      if(e){
+        openEditId = st.id;
+        if(st.draft){ aplicarRascunho(e, st.draft); RASCUNHO_ID = st.id; RASCUNHO_ULTIMO = st.draft; }
+      }
+    }
+    renderAll();
+  }catch(_){}
+  return st.y || 0;
+}
+function rolarPara(y){ const f = () => window.scrollTo(0, y); f(); requestAnimationFrame(f); setTimeout(f, 250); setTimeout(f, 800); }
 function salvarEstadoUI(){
   if(!ESTADO_RESTAURADO) return;
-  try{ sessionStorage.setItem('estadoUI', JSON.stringify({id: openEditId || null, y: Math.round(window.scrollY), emp: EMPRESA_ATUAL ? EMPRESA_ATUAL.id : null})); }catch(_){}
+  try{
+    const e = openEditId ? DATA.find(x => x.id === openEditId) : null;
+    if(RASCUNHO_ID !== openEditId) RASCUNHO_ID = null;           // trocou ou fechou a ficha: descarta o rascunho
+    const draft = (e && RASCUNHO_ID === openEditId) ? coletarRascunho() : null;
+    localStorage.setItem(ESTADO_CHAVE, JSON.stringify({
+      t: Date.now(), user: AUTH_USERNAME, emp: EMPRESA_ATUAL ? EMPRESA_ATUAL.id : null,
+      id: openEditId || null, novo: !!(e && e._novo), draft, y: Math.round(window.scrollY),
+      q: document.getElementById('searchInput').value, status: document.getElementById('statusFilter').value,
+      doc: document.getElementById('docFilter').value, sortKey, sortDir
+    }));
+  }catch(_){}
 }
 (function(){
   let t = null;
-  window.addEventListener('scroll', () => { clearTimeout(t); t = setTimeout(salvarEstadoUI, 150); }, {passive:true});
+  const agendar = () => { clearTimeout(t); t = setTimeout(salvarEstadoUI, 300); };
+  window.addEventListener('scroll', agendar, {passive:true});
   window.addEventListener('pagehide', salvarEstadoUI);
+  window.addEventListener('beforeunload', salvarEstadoUI);
   document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden') salvarEstadoUI(); });
+  // qualquer texto digitado na ficha aberta marca um rascunho e é guardado na hora
+  document.addEventListener('input', ev => {
+    const el = ev.target;
+    if(el && el.id && el.id.startsWith('fld-') && openEditId && el.id.includes(openEditId)) RASCUNHO_ID = openEditId;
+    agendar();
+  });
+  document.addEventListener('change', agendar);
   try{ if('scrollRestoration' in history) history.scrollRestoration = 'manual'; }catch(_){}
 })();
 async function refreshData(){
@@ -1264,6 +1335,7 @@ function irParaEdicaoDoColaborador(id, sigla){
   document.getElementById('searchInput').value = '';
   openEditId = id;
   renderTable();
+  salvarEstadoUI();
   const linha = document.querySelector(`[data-edit="${id}"]`);
   if(linha) linha.closest('tr').scrollIntoView({behavior:'smooth', block:'center'});
 }
@@ -1503,7 +1575,7 @@ function renderTable(){
     }
   }));
   tbody.querySelectorAll('[data-save-edit]').forEach(btn => btn.addEventListener('click', () => saveEdit(btn.dataset.saveEdit)));
-  tbody.querySelectorAll('[data-cancel-edit]').forEach(btn => btn.addEventListener('click', () => { delete CAMPOS_EXTRA[btn.dataset.cancelEdit]; openEditId = null; renderTable(); }));
+  tbody.querySelectorAll('[data-cancel-edit]').forEach(btn => btn.addEventListener('click', () => { delete CAMPOS_EXTRA[btn.dataset.cancelEdit]; openEditId = null; RASCUNHO_ID = null; renderTable(); salvarEstadoUI(); }));
   tbody.querySelectorAll('[data-clear]').forEach(btn => btn.addEventListener('click', (ev) => {
     ev.preventDefault();
     const input = document.querySelector(`input[data-date-for="${btn.dataset.clear}"]`);
@@ -1657,8 +1729,9 @@ async function saveEdit(id){
   try{
     await apiFetch('/api/colaborador', {method:'POST', body: JSON.stringify({id: eraNovo ? null : id, nome, notas, docs, cargo: (document.getElementById(`fld-cargo-${id}`) || {}).value, maquina: (document.getElementById(`fld-maquina-${id}`) || {}).value})});
     delete CAMPOS_EXTRA[id];
-    openEditId = null;
+    openEditId = null; RASCUNHO_ID = null;
     await refreshData();
+    salvarEstadoUI();
     showToast(duplicado ? `Colaborador salvo. Atenção: já existe outro "${nome}" cadastrado.` : 'Colaborador salvo.');
   }catch(err){
     showToast('Não foi possível salvar: ' + err.message, 'error');
@@ -1674,6 +1747,8 @@ function addNew(){
   document.getElementById('statusFilter').value = '';
   document.getElementById('docFilter').value = '';
   renderAll();
+  RASCUNHO_ID = id;
+  salvarEstadoUI();
   setTimeout(() => {
     const el = document.getElementById(`fld-nome-${id}`);
     if(el){ el.focus(); el.select(); el.scrollIntoView({behavior:'smooth', block:'center'}); }
@@ -3398,8 +3473,7 @@ async function iniciarApp(){
   { const y0 = restaurarEstadoUI(); if(y0 != null) rolarPara(y0); }
   checarNotificacaoNavegador();
   setInterval(checarNotificacaoNavegador, 60 * 60 * 1000); // reavalia a cada hora em sessões longas
-  const thNome = document.querySelector('thead th[data-key="nome"] .arrow');
-  if(thNome) thNome.textContent = '▲';
+  atualizarSetasOrdenacao();
 
   document.getElementById('bannerText').textContent = 'Sessão ativa';
   document.getElementById('manageUsersBtn').style.display = AUTH_ROLE === 'admin' ? 'inline-flex' : 'none';
