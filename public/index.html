@@ -1601,9 +1601,9 @@ function rowHTML(e, docF){
           <input type="text" id="fld-cargo-${e.id}" maxlength="80" value="${escapeHTML((EXTRAS[e.id] || {}).cargo || '')}" placeholder="ex.: Operador de retroescavadeira">
         </div>
         <div class="field">
-          <label>Tipo de máquina / equipamento</label>
-          <input type="text" id="fld-maquina-${e.id}" maxlength="80" list="listaMaquinas" value="${escapeHTML((EXTRAS[e.id] || {}).maquina || '')}" placeholder="ex.: Retroescavadeira">
-          <datalist id="listaMaquinas"><option value="Empilhadeira"><option value="Plataforma elevatória"><option value="Retroescavadeira"><option value="Carregadeira"><option value="Escavadeira"><option value="Guindaste / Munck"><option value="Trator"><option value="Rebocador"><option value="Caminhão"></datalist>
+          <label>Máquinas / equipamentos que opera (separe por vírgula)</label>
+          <input type="text" id="fld-maquina-${e.id}" maxlength="160" list="listaMaquinas" value="${escapeHTML((EXTRAS[e.id] || {}).maquina || '')}" placeholder="ex.: Empilhadeira, Carrinho elétrico">
+          <datalist id="listaMaquinas"><option value="Empilhadeira"><option value="Carrinho elétrico"><option value="Paleteira elétrica"><option value="Plataforma elevatória"><option value="Retroescavadeira"><option value="Carregadeira"><option value="Escavadeira"><option value="Guindaste / Munck"><option value="Trator"><option value="Rebocador"><option value="Caminhão"></datalist>
         </div>
         ${fotoBoxHTML(e)}
         ${DOC_ORDER.filter(sigla => e.docs[sigla] || (CAMPOS_EXTRA[e.id] || []).includes(sigla)).map(sigla => `
@@ -2458,7 +2458,7 @@ function desenharIcones(ctx, e, sigla, x0, y0, areaW, ch){
   const ocultos = itens.length - mostrar.length;
   const celulas = mostrar.length + (ocultos > 0 ? 1 : 0);
   for(let i = 0; i < celulas; i++){
-    const x = x0 + (i % porLinha) * (cw + gap), y = y0 + Math.floor(i / porLinha) * (ch + 6), h = ch;
+    const x = x0 + (i % porLinha) * (cw + gap), y = y0 + Math.floor(i / porLinha) * (ch + 4), h = ch;
     if(i >= mostrar.length){
       ctx.fillStyle = '#E9ECEF'; cardRound(ctx, x, y, cw, h, 8); ctx.fill();
       ctx.fillStyle = '#333'; ctx.font = `700 20px ${FONTE_CARD}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -2472,8 +2472,8 @@ function desenharIcones(ctx, e, sigla, x0, y0, areaW, ch){
     cardRound(ctx, x + 2, y + 2, cw - 4, h - 4, 7); ctx.stroke();
     ctx.fillStyle = cs.texto; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     if(rot.bottom){
-      cardAjustaFonte(ctx, rot.top, 600, 14, 9, cw - 12, FONTE_TXT); ctx.fillText(rot.top, x + cw/2, y + h*0.28);
-      cardAjustaFonte(ctx, rot.bottom, 700, h >= 40 ? 26 : 22, 11, cw - 10, FONTE_CARD); ctx.fillText(rot.bottom, x + cw/2, y + h*0.68);
+      cardAjustaFonte(ctx, rot.top, 600, h >= 40 ? 14 : 12, 9, cw - 12, FONTE_TXT); ctx.fillText(rot.top, x + cw/2, y + h*(h >= 40 ? 0.28 : 0.27));
+      cardAjustaFonte(ctx, rot.bottom, 700, h >= 40 ? 26 : 19, 11, cw - 10, FONTE_CARD); ctx.fillText(rot.bottom, x + cw/2, y + h*(h >= 40 ? 0.68 : 0.70));
     } else {
       cardAjustaFonte(ctx, rot.top, 700, h >= 40 ? 26 : 22, 11, cw - 10, FONTE_CARD); ctx.fillText(rot.top, x + cw/2, y + h/2 + 1);
     }
@@ -2525,8 +2525,27 @@ async function desenharFrente(e, sigla, fotoURL, logoURL){
   const x = 320, maxW = CARD_W - x - 40;
   const extra = EXTRAS[e.id] || {};
   const cargo = String(extra.cargo || '').trim().toUpperCase();
-  const operador = ehOperadorMaquina(sigla) || ehOperadorEquip(sigla);
-  const maquina = operador ? String(extra.maquina || '').trim() : '';
+  // Máquinas/equipamentos que a pessoa opera (várias, separadas por vírgula): sempre impressas quando preenchidas.
+  const maquinas = String(extra.maquina || '').split(/[,;]+/).map(m => m.trim().toUpperCase()).filter(Boolean);
+  let maqLinhas = [], tamMaq = 22;
+  if(maquinas.length){
+    // quebra por item (nunca deixa o separador sozinho no começo da linha)
+    const montar = tam => {
+      ctx.font = `700 ${tam}px ${FONTE_CARD}`;
+      const out = []; let cur = '';
+      maquinas.forEach(m => {
+        const t = cur ? cur + '  ·  ' + m : m;
+        if(cur && ctx.measureText(t).width > maxW){ out.push(cur); cur = m; } else cur = t;
+      });
+      out.push(cur);
+      return out;
+    };
+    for(const tam of [22, 20, 17, 15]){
+      tamMaq = tam; maqLinhas = montar(tam);
+      if(maqLinhas.length <= (tam === 22 ? 1 : 2)) break;
+    }
+    if(maqLinhas.length > 2){ maqLinhas = maqLinhas.slice(0, 2); maqLinhas[1] = maqLinhas[1].replace(/\s*·?\s*$/, '') + '…'; }
+  }
   const nomeUp = e.nome.toUpperCase();
   cardAjustaFonte(ctx, nomeUp, 700, 40, 30, maxW, FONTE_CARD);
   let linhas = [nomeUp], tamNome = 40, passoNome = 0;
@@ -2534,18 +2553,27 @@ async function desenharFrente(e, sigla, fotoURL, logoURL){
     ctx.font = `700 30px ${FONTE_CARD}`; tamNome = 30; passoNome = 32;
     linhas = cardQuebra(ctx, nomeUp, maxW, 2);
   } else { tamNome = parseInt(ctx.font.match(/(\d+)px/)[1], 10); }
-  const BADGE_H = 48, BADGE_Y = 516 - BADGE_H, LIMITE = BADGE_Y - 12;
-  let gap = 40, tamData = linhas.length > 1 ? 40 : 46, yLabelValid = 0, yTrein = 0, yCargo = 0, yNome0 = 0;
+  const BADGE_H = 48, BADGE_Y = 484, LIMITE = BADGE_Y - 12;
+  let gap = 40, tamData = linhas.length > 1 ? 40 : 46, yLabelValid = 0, yTrein = 0, yCargo = 0, yNome0 = 0, yMaq = 0, trein1 = false;
+  const passoMaq = tamMaq + 4;
   const calcula = () => {
     yNome0 = 206 + (linhas.length > 1 ? 34 : 40);
     let y = yNome0 + (linhas.length - 1) * passoNome;
     yCargo = cargo ? y + 28 : 0; if(cargo) y = yCargo;
     yTrein = y + gap;                    // rótulo "TREINAMENTO"
-    yLabelValid = yTrein + 32 + gap;     // rótulo "VALIDADE ..."
+    let fimBloco = trein1 ? yTrein : yTrein + 32;   // baseline do nome do treinamento (ou da linha única, no modo compacto)
+    if(maqLinhas.length){
+      yMaq = fimBloco + Math.round(gap * 0.6) + 14;          // rótulo "MÁQUINAS QUE OPERA"
+      fimBloco = yMaq + 8 + tamMaq + (maqLinhas.length - 1) * passoMaq;
+    }
+    yLabelValid = fimBloco + gap;        // rótulo "VALIDADE ..."
     return yLabelValid + 8 + tamData;    // linha de base das datas
   };
   while(calcula() > LIMITE && gap > 24) gap -= 2;
   while(calcula() > LIMITE && tamData > 32) tamData -= 2;
+  if(calcula() > LIMITE) trein1 = true;   // sem espaço (nome longo + várias máquinas): treinamento numa linha só
+  while(calcula() > LIMITE && gap > 12) gap -= 2;
+  while(calcula() > LIMITE && tamData > 26) tamData -= 2;
   ctx.fillStyle = '#6B747C'; ctx.font = `600 19px ${FONTE_TXT}`; ctx.fillText('NOME', x, 206);
   ctx.fillStyle = '#111'; ctx.font = `700 ${tamNome}px ${FONTE_CARD}`;
   linhas.forEach((l, i) => ctx.fillText(l, x, yNome0 + i*passoNome));
@@ -2554,12 +2582,24 @@ async function desenharFrente(e, sigla, fotoURL, logoURL){
     ctx.fillText('FUNÇÃO: ' + cargo, x, yCargo);
   }
   ctx.fillStyle = '#6B747C'; ctx.font = `600 19px ${FONTE_TXT}`;
-  ctx.fillText(maquina ? 'TREINAMENTO · TIPO DE MÁQUINA' : 'TREINAMENTO', x, yTrein);
-  ctx.fillStyle = '#111';
   const nomeTrein = (DOC_TYPES[sigla] && DOC_TYPES[sigla].nome) || sigla;
-  const textoTrein = (nomeTrein && nomeTrein !== sigla ? nomeTrein : sigla) + (maquina ? '  ·  ' + maquina : '');
-  cardAjustaFonte(ctx, textoTrein, 600, 28, 16, maxW, FONTE_CARD);
-  ctx.fillText(textoTrein, x, yTrein + 32);
+  const textoTrein = (nomeTrein && nomeTrein !== sigla ? nomeTrein : sigla);
+  if(trein1){
+    const rotT = 'TREINAMENTO: ', wRot = ctx.measureText(rotT).width;
+    ctx.fillText(rotT, x, yTrein);
+    ctx.fillStyle = '#111'; cardAjustaFonte(ctx, textoTrein, 600, 24, 14, maxW - wRot, FONTE_CARD);
+    ctx.fillText(textoTrein, x + wRot, yTrein);
+  } else {
+    ctx.fillText('TREINAMENTO', x, yTrein);
+    ctx.fillStyle = '#111';
+    cardAjustaFonte(ctx, textoTrein, 600, 28, 16, maxW, FONTE_CARD);
+    ctx.fillText(textoTrein, x, yTrein + 32);
+  }
+  if(maqLinhas.length){
+    ctx.fillStyle = '#6B747C'; ctx.font = `600 19px ${FONTE_TXT}`; ctx.fillText('MÁQUINAS QUE OPERA', x, yMaq);
+    ctx.fillStyle = '#111'; ctx.font = `700 ${tamMaq}px ${FONTE_CARD}`;
+    maqLinhas.forEach((l, i) => ctx.fillText(l, x, yMaq + 8 + tamMaq + i * passoMaq));
+  }
   const colW = maxW / 2;
   [['VALIDADE ' + sigla, e.docs[sigla]], ['VALIDADE ASO', e.docs['ASO']]].forEach(([rot, data], i) => {
     const cx = x + i*colW;
@@ -2589,7 +2629,7 @@ async function desenharFrente(e, sigla, fotoURL, logoURL){
   const nIcones = listaIcones(e).length;
   if(nIcones){
     const linIc = Math.min(2, Math.ceil(nIcones / 6));
-    desenharIcones(ctx, e, sigla, x, BADGE_Y + BADGE_H + 14, maxW, linIc === 1 ? 46 : 36);
+    desenharIcones(ctx, e, sigla, x, BADGE_Y + BADGE_H + 10, maxW, linIc === 1 ? 46 : 36);
   }
   // legenda da cor de segurança: na coluna da foto, embaixo dela
   ctx.fillStyle = cor.hex; ctx.fillRect(40, 538, 30, 30);

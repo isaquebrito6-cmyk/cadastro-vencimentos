@@ -338,9 +338,9 @@ async function handleColaborador(request, env, url) {
     if (body.cargo !== undefined || body.maquina !== undefined) {
       await garantirTabelaExtras(db);
       const { results: atual } = await db.prepare('SELECT cargo, maquina FROM colaborador_extra WHERE colaborador_id = ?').bind(id).all();
-      const limpa = (v, antigo) => v === undefined ? (antigo || '') : String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, 80);
+      const limpa = (v, antigo, max = 80) => v === undefined ? (antigo || '') : String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max);
       const cargo = limpa(body.cargo, atual[0] && atual[0].cargo);
-      const maquina = limpa(body.maquina, atual[0] && atual[0].maquina);
+      const maquina = limpa(body.maquina, atual[0] && atual[0].maquina, 160);
       await db.prepare(`INSERT INTO colaborador_extra (colaborador_id, empresa_id, cargo, maquina) VALUES (?, ?, ?, ?)
         ON CONFLICT(colaborador_id) DO UPDATE SET cargo = excluded.cargo, maquina = excluded.maquina`).bind(id, empresaId, cargo, maquina).run();
     }
@@ -482,7 +482,7 @@ async function handleColaboradorLote(request, env, url) {
       restaurados++;
       if (typeof item.cargo === 'string' || typeof item.maquina === 'string') {
         await garantirTabelaExtras(db);
-        stmts.push(stmtExtras(db, item.id, empresaId, limparExtra(item.cargo), limparExtra(item.maquina)));
+        stmts.push(stmtExtras(db, item.id, empresaId, limparExtra(item.cargo), limparExtra(item.maquina, 160)));
       }
     }
     await executarEmLotes(db, stmts);
@@ -570,7 +570,7 @@ async function handleColaboradorLote(request, env, url) {
     const atual = mapa.get(chave);
 
     if (!atual) {
-      const reg = { id: null, nome, notas, docs: lim.docs, existente: false, cargo: limparExtra(r.cargo), maquina: limparExtra(r.maquina) };
+      const reg = { id: null, nome, notas, docs: lim.docs, existente: false, cargo: limparExtra(r.cargo), maquina: limparExtra(r.maquina, 160) };
       mapa.set(chave, reg);
       novos.push(reg);
       return;
@@ -583,7 +583,7 @@ async function handleColaboradorLote(request, env, url) {
     const notasNovas = notas.length ? notas : atual.notas;
     // Cargo e tipo de máquina: célula vazia nunca apaga o que já está cadastrado.
     const extraAtual = atual.existente ? (extrasMap.get(atual.id) || { cargo: '', maquina: '' }) : { cargo: atual.cargo || '', maquina: atual.maquina || '' };
-    const cargoNovo = limparExtra(r.cargo) || extraAtual.cargo, maquinaNovo = limparExtra(r.maquina) || extraAtual.maquina;
+    const cargoNovo = limparExtra(r.cargo) || extraAtual.cargo, maquinaNovo = limparExtra(r.maquina, 160) || extraAtual.maquina;
     const extrasMuda = cargoNovo !== extraAtual.cargo || maquinaNovo !== extraAtual.maquina;
     if (JSON.stringify(docsNovos) === antesDocs && JSON.stringify(notasNovas) === antesNotas && !extrasMuda) { semMudanca++; return; }
     if (atual.existente && !atual.anterior) atual.anterior = { notas: atual.notas, docs: atual.docs, cargo: extraAtual.cargo, maquina: extraAtual.maquina };
@@ -713,7 +713,7 @@ async function apagarCertificadosDaLixeira(db, empresaId, limiteData) {
 const MAX_FOTO_BYTES = 600 * 1024; // vale também para o logo // o app reduz a foto para ~60–150 KB antes de enviar
 let fotoTabelaPronta = false;
 let extrasTabelaPronta = false;
-function limparExtra(v) { return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, 80); }
+function limparExtra(v, max = 80) { return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max); }
 // Grava cargo/tipo de máquina; os dois vazios apagam a linha.
 function stmtExtras(db, id, empresaId, cargo, maquina) {
   if (!cargo && !maquina) return db.prepare('DELETE FROM colaborador_extra WHERE colaborador_id = ? AND empresa_id = ?').bind(id, empresaId);
