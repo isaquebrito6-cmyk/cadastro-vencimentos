@@ -2438,12 +2438,7 @@ function rotuloIcone(sigla){
   if(/\bASO\b/.test(su)) return {top: 'ASO', bottom: ''};
   if(/LOTO|BLOQUEIO/.test(su)) return {top: 'NR', bottom: '10/12'};
   const m = su.match(/NR\s*-?\s*0*(\d{1,2})(?:\s*[\/.\-]\s*0*(\d{1,2}))?(.*)$/);
-  if(m){
-    const num = m[1] + (m[2] ? '/' + m[2] : '');
-    let suf = /\bSUP/.test(su) ? 'SUP' : (m[3] || '').replace(/\bOP\b\.?/g, ' ').replace(/[^A-Z0-9 ]/g, ' ').trim().split(/\s+/)[0] || '';
-    suf = suf.slice(0, 4);
-    return suf ? {top: 'NR ' + num, bottom: suf} : {top: 'NR', bottom: num};
-  }
+  if(m) return {top: 'NR', bottom: m[1] + (m[2] ? '/' + m[2] : '')};
   return {top: su.slice(0, 5), bottom: ''};
 }
 // Ícones dos documentos: faixa abaixo do selo "APTO PARA ATIVIDADE", na coluna de dados (até 6 por linha, 2 linhas).
@@ -2596,7 +2591,7 @@ async function desenharFrente(e, sigla, fotoURL, logoURL){
     ctx.fillText(textoTrein, x, yTrein + 32);
   }
   if(maqLinhas.length){
-    ctx.fillStyle = '#6B747C'; ctx.font = `600 19px ${FONTE_TXT}`; ctx.fillText('MÁQUINAS QUE OPERA', x, yMaq);
+    ctx.fillStyle = '#6B747C'; ctx.font = `600 19px ${FONTE_TXT}`; ctx.fillText(maquinas.length > 1 ? 'APTO A OPERAR (' + maquinas.length + ' MÁQUINAS)' : 'APTO A OPERAR', x, yMaq);
     ctx.fillStyle = '#111'; ctx.font = `700 ${tamMaq}px ${FONTE_CARD}`;
     maqLinhas.forEach((l, i) => ctx.fillText(l, x, yMaq + 8 + tamMaq + i * passoMaq));
   }
