@@ -420,12 +420,18 @@
       <span id="cardLogoStatus" style="font-size:11px;color:var(--text-dim);"></span>
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px;padding:10px;border:1px dashed var(--line);border-radius:4px;">
+      <a href="#" class="btn ghost" id="cardAssinColab">✍ Assinatura digital do colaborador</a>
+      <a href="#" class="clear-date" id="cardAssinColabRemover" style="display:none;">remover</a>
+      <span id="cardAssinColabStatus" style="font-size:11px;color:var(--text-dim);"></span>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px;padding:10px;border:1px dashed var(--line);border-radius:4px;">
       <a href="#" class="btn ghost" id="cardAssinResp">✍ Assinatura do responsável</a>
       <a href="#" class="clear-date" id="cardAssinRespRemover" style="display:none;">remover</a>
       <span id="cardAssinRespStatus" style="font-size:11px;color:var(--text-dim);"></span>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
       <button class="btn primary" id="cardImprimir">🖨 Imprimir</button>
+      <button class="btn primary" id="cardCompartilhar">📤 Compartilhar</button>
       <button class="btn ghost" id="cardBaixarFrente">⬇ Frente (PNG)</button>
       <button class="btn ghost" id="cardBaixarVerso">⬇ Verso (PNG)</button>
       <button class="btn ghost" id="cardFechar" style="margin-left:auto;">Fechar</button>
@@ -2440,12 +2446,12 @@ function rotuloIcone(sigla){
   }
   return {top: su.slice(0, 5), bottom: ''};
 }
-// Ícones dos documentos: grade sob a foto, dentro da moldura (layout aprovado). Retorna a altura usada.
+// Ícones dos documentos: faixa abaixo do selo "APTO PARA ATIVIDADE", na coluna de dados (até 6 por linha, 2 linhas).
 function listaIcones(e){ return ['ASO', ...DOC_ORDER.filter(s => s !== 'ASO')].filter(s => e.docs[s]); }
 function desenharIcones(ctx, e, sigla, x0, y0, areaW, ch){
   const itens = listaIcones(e);
   if(!itens.length) return;
-  const gap = 8, porLinha = itens.length > 6 ? 4 : 3, maxLinhas = 3;
+  const gap = 8, porLinha = 6, maxLinhas = 2;
   const cw = Math.floor((areaW - gap * (porLinha - 1)) / porLinha);
   const cap = porLinha * maxLinhas;
   const mostrar = itens.length > cap ? itens.slice(0, cap - 1) : itens;
@@ -2466,10 +2472,10 @@ function desenharIcones(ctx, e, sigla, x0, y0, areaW, ch){
     cardRound(ctx, x + 2, y + 2, cw - 4, h - 4, 7); ctx.stroke();
     ctx.fillStyle = cs.texto; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     if(rot.bottom){
-      cardAjustaFonte(ctx, rot.top, 600, 13, 9, cw - 12, FONTE_TXT); ctx.fillText(rot.top, x + cw/2, y + h*0.30);
-      cardAjustaFonte(ctx, rot.bottom, 700, 22, 11, cw - 10, FONTE_CARD); ctx.fillText(rot.bottom, x + cw/2, y + h*0.68);
+      cardAjustaFonte(ctx, rot.top, 600, 14, 9, cw - 12, FONTE_TXT); ctx.fillText(rot.top, x + cw/2, y + h*0.28);
+      cardAjustaFonte(ctx, rot.bottom, 700, h >= 40 ? 26 : 22, 11, cw - 10, FONTE_CARD); ctx.fillText(rot.bottom, x + cw/2, y + h*0.68);
     } else {
-      cardAjustaFonte(ctx, rot.top, 700, 22, 11, cw - 10, FONTE_CARD); ctx.fillText(rot.top, x + cw/2, y + h/2 + 1);
+      cardAjustaFonte(ctx, rot.top, 700, h >= 40 ? 26 : 22, 11, cw - 10, FONTE_CARD); ctx.fillText(rot.top, x + cw/2, y + h/2 + 1);
     }
   }
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
@@ -2497,10 +2503,8 @@ async function desenharFrente(e, sigla, fotoURL, logoURL){
   const sub = emp + '  ·  SEGURANÇA DO TRABALHO';
   cardAjustaFonte(ctx, sub, 500, 24, 14, wT, FONTE_CARD); ctx.fillText(sub, xT, 56);
   cardAjustaFonte(ctx, titularCarteira(sigla), 700, 54, 28, wT, FONTE_CARD); ctx.fillText(titularCarteira(sigla), xT, 114);
-  const fx = 40, fy = 196, fw = 240, fhTotal = 320, CH = 44;
-  const nIc = listaIcones(e).length, porL = nIc > 6 ? 4 : 3;
-  const linIc = Math.min(3, Math.ceil(nIc / porL));
-  const fh = nIc ? fhTotal - (linIc * (CH + 6) + 6) : fhTotal;
+  const fx = 40, fy = 196, fw = 240, fhTotal = 320;
+  const fh = fhTotal;   // a foto ocupa a moldura inteira; os ícones das NRs ficam abaixo do selo de aptidão
   ctx.fillStyle = '#E9ECEF'; ctx.fillRect(fx, fy, fw, fh);
   if(fotoImg){
     // recorta no formato 3:4 (rosto costuma ficar na parte de cima) em vez de esticar a imagem
@@ -2516,7 +2520,6 @@ async function desenharFrente(e, sigla, fotoURL, logoURL){
     ctx.fillStyle = '#6B747C'; ctx.font = `500 20px ${FONTE_TXT}`; ctx.textAlign = 'center'; ctx.fillText('SEM FOTO', fx+fw/2, fy+fh-14); ctx.textAlign = 'left';
   }
   ctx.lineWidth = 8; ctx.strokeStyle = cor.hex; ctx.strokeRect(fx-4, fy-4, fw+8, fhTotal+8);
-  if(nIc){ ctx.fillStyle = '#fff'; ctx.fillRect(fx, fy + fh, fw, fhTotal - fh); desenharIcones(ctx, e, sigla, fx + 4, fy + fh + 6, fw - 8, CH); }
   // Coluna de dados: posições calculadas em sequência. Se faltar espaço, os intervalos e as fontes encolhem;
   // nada é desenhado por cima de outra coisa.
   const x = 320, maxW = CARD_W - x - 40;
@@ -2582,9 +2585,18 @@ async function desenharFrente(e, sigla, fotoURL, logoURL){
   else { ctx.moveTo(x0 + 5, cyI - 9); ctx.lineTo(x0 + 25, cyI + 9); ctx.moveTo(x0 + 25, cyI - 9); ctx.lineTo(x0 + 5, cyI + 9); }
   ctx.stroke();
   ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = cor.hex; ctx.fillRect(40, 556, 34, 34);
-  ctx.fillStyle = '#333'; ctx.font = `500 21px ${FONTE_TXT}`;
-  ctx.fillText(`Cor de segurança (NR-26): ${cor.nome} — ${cor.uso}`, 88, 580);
+  // ícones das NRs: logo abaixo do selo "APTO PARA ATIVIDADE" ("NR" em cima, número embaixo)
+  const nIcones = listaIcones(e).length;
+  if(nIcones){
+    const linIc = Math.min(2, Math.ceil(nIcones / 6));
+    desenharIcones(ctx, e, sigla, x, BADGE_Y + BADGE_H + 14, maxW, linIc === 1 ? 46 : 36);
+  }
+  // legenda da cor de segurança: na coluna da foto, embaixo dela
+  ctx.fillStyle = cor.hex; ctx.fillRect(40, 538, 30, 30);
+  ctx.fillStyle = '#333'; ctx.font = `600 16px ${FONTE_TXT}`;
+  ctx.fillText('Cor de segurança (NR-26)', 80, 552);
+  ctx.font = `500 15px ${FONTE_TXT}`;
+  cardQuebra(ctx, `${cor.nome} — ${cor.uso}`, 232, 2).forEach((l, i) => ctx.fillText(l, 80, 574 + i * 20));
   cardZebra(ctx, 0, CARD_H - 14, CARD_W, 14);
   return c;
 }
@@ -2784,6 +2796,13 @@ function atualizarAssinRespStatus(){
   if(el) el.textContent = tem ? 'Assinatura do responsável cadastrada.' : 'Sem assinatura do responsável (a linha fica em branco).';
   const rm = document.getElementById('cardAssinRespRemover'); if(rm) rm.style.display = tem ? '' : 'none';
 }
+function atualizarAssinColabStatus(){
+  const tem = !!(CARTEIRA_ATUAL && FOTOS['assin:' + CARTEIRA_ATUAL.colabId]);
+  const el = document.getElementById('cardAssinColabStatus');
+  if(el) el.textContent = tem ? 'Assinatura do colaborador cadastrada.' : 'Sem assinatura do colaborador (a linha fica em branco).';
+  const bt = document.getElementById('cardAssinColab'); if(bt) bt.textContent = tem ? '✍ Refazer assinatura do colaborador' : '✍ Assinatura digital do colaborador';
+  const rm = document.getElementById('cardAssinColabRemover'); if(rm) rm.style.display = tem ? '' : 'none';
+}
 function recarregarCarteiraAberta(){ if(CARTEIRA_ATUAL && document.getElementById('cardModal').style.display === 'flex') abrirCarteira(CARTEIRA_ATUAL.colabId, CARTEIRA_ATUAL.sigla); }
 
 
@@ -2872,6 +2891,7 @@ async function abrirCarteira(colabId, sigla){
     CARTEIRA_ATUAL = {frente: f, verso: v, nome: e.nome, sigla, colabId};
     atualizarLogoStatus(!!logoURL);
     atualizarAssinRespStatus();
+    atualizarAssinColabStatus();
     const box = document.getElementById('cardPreview');
     box.innerHTML = '';
     [f, v].forEach(cv => { cv.style.cssText = 'width:100%;max-width:520px;height:auto;border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,.45);display:block;margin:0 auto 12px;'; box.appendChild(cv); });
@@ -2895,6 +2915,28 @@ function baixarCarteira(lado){
     const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = nomeArquivoCarteira(lado);
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   }, 'image/png');
+}
+// Compartilha frente e verso (PNG) pelo menu do aparelho (WhatsApp, e-mail, etc.). Sem suporte, baixa os arquivos.
+async function compartilharCarteira(){
+  if(!CARTEIRA_ATUAL) return;
+  const paraBlob = cv => new Promise(res => cv.toBlob(res, 'image/png'));
+  try{
+    const [bf, bv] = await Promise.all([paraBlob(CARTEIRA_ATUAL.frente), paraBlob(CARTEIRA_ATUAL.verso)]);
+    const arquivos = [
+      new File([bf], nomeArquivoCarteira('frente'), {type: 'image/png'}),
+      new File([bv], nomeArquivoCarteira('verso'), {type: 'image/png'})
+    ];
+    const dados = {files: arquivos, title: 'Carteirinha - ' + CARTEIRA_ATUAL.nome, text: 'Carteirinha de ' + CARTEIRA_ATUAL.nome + ' (' + CARTEIRA_ATUAL.sigla + ')'};
+    if(navigator.canShare && navigator.canShare({files: arquivos}) && navigator.share){
+      await navigator.share(dados);
+    } else {
+      baixarCarteira('frente'); setTimeout(() => baixarCarteira('verso'), 600);
+      showToast('Este aparelho não abre o compartilhamento: os arquivos foram baixados para você enviar.');
+    }
+  }catch(err){
+    if(err && err.name === 'AbortError') return;   // pessoa fechou o menu de compartilhar
+    showToast('Não foi possível compartilhar: ' + (err.message || err), 'error');
+  }
 }
 function imprimirCarteira(){
   if(!CARTEIRA_ATUAL) return;
@@ -3458,6 +3500,9 @@ async function iniciarApp(){
   iniciarPadAssinatura();
   document.getElementById('cardAssinResp').addEventListener('click', ev => { ev.preventDefault(); abrirAssinatura(chaveAssinResp(), 'Assinatura do responsável', recarregarCarteiraAberta); });
   document.getElementById('cardAssinRespRemover').addEventListener('click', ev => { ev.preventDefault(); removerAssinatura(chaveAssinResp(), () => { atualizarAssinRespStatus(); recarregarCarteiraAberta(); }); });
+  document.getElementById('cardAssinColab').addEventListener('click', ev => { ev.preventDefault(); if(!CARTEIRA_ATUAL) return; abrirAssinatura('assin:' + CARTEIRA_ATUAL.colabId, 'Assinatura de ' + CARTEIRA_ATUAL.nome, recarregarCarteiraAberta); });
+  document.getElementById('cardAssinColabRemover').addEventListener('click', ev => { ev.preventDefault(); if(!CARTEIRA_ATUAL) return; removerAssinatura('assin:' + CARTEIRA_ATUAL.colabId, recarregarCarteiraAberta); });
+  document.getElementById('cardCompartilhar').addEventListener('click', compartilharCarteira);
   document.getElementById('cardLogoInput').addEventListener('change', ev => { const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; if(f) enviarLogo(f); });
   document.getElementById('cardLogoRemover').addEventListener('click', ev => { ev.preventDefault(); removerLogo(); });
   document.getElementById('cardImprimir').addEventListener('click', imprimirCarteira);

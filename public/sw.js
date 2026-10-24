@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vencimentos-cache-v40';
+const CACHE_NAME = 'vencimentos-cache-v41';
 const APP_SHELL = ['/', '/index.html', '/manifest.json', '/icon-512.png', '/icon-180.png'];
 
 self.addEventListener('install', (event) => {
