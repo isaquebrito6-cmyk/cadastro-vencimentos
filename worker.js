@@ -736,6 +736,61 @@ async function garantirTabelaFotos(db) {
   fotoTabelaPronta = true;
 }
 
+// ---------- Leitura de lista escaneada com IA (opcional) ----------
+// Só funciona se o segredo ANTHROPIC_API_KEY estiver configurado no Worker. Sem ele, o app lê no próprio celular (Tesseract).
+async function handleOcrLista(request, env, url) {
+  if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
+  const session = await obterSessao(request, env);
+  if (!session) return json({ error: 'unauthorized' }, 401);
+  if (!env.ANTHROPIC_API_KEY) return json({ error: 'ia_nao_configurada' }, 501);
+  const db = env.DB;
+  const resolvido = await resolverEmpresa(session, url, db);
+  if (!resolvido.ok) return json({ error: resolvido.error }, 403);
+  const buf = new Uint8Array(await request.arrayBuffer());
+  if (buf.length < 200 || buf.length > 3 * 1024 * 1024) return json({ error: 'imagem_invalida' }, 400);
+  const tipo = detectarTipoArquivo(buf);
+  if (tipo !== 'image/jpeg' && tipo !== 'image/png') return json({ error: 'tipo_invalido' }, 400);
+  const { results: tipos } = await db.prepare('SELECT sigla FROM doc_types WHERE empresa_id = ? ORDER BY ordem ASC').bind(resolvido.empresaId).all();
+  const siglas = tipos.map(t => t.sigla);
+  const prompt = 'Esta imagem é uma lista de colaboradores (papel escaneado ou fotografado), em português do Brasil. ' +
+    'Leia todas as linhas que são pessoas e devolva SOMENTE um JSON, sem texto antes ou depois, no formato ' +
+    '{"colaboradores":[{"nome":"NOME COMPLETO EM MAIÚSCULAS","cargo":"função, ou vazio","docs":{"SIGLA":"AAAA-MM-DD"}}]}. ' +
+    'Ignore cabeçalhos, títulos, números de linha, assinaturas e carimbos. Use em "docs" apenas estas siglas: ' + JSON.stringify(siglas) +
+    ' (ASO = exame/atestado de saúde). Só inclua um documento se houver uma data legível para ele. Não invente nomes nem datas; se estiver ilegível, omita.';
+  let resp;
+  try {
+    resp = await fetch(env.ANTHROPIC_API_URL || 'https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: env.ANTHROPIC_MODEL || 'claude-sonnet-5-5',
+        max_tokens: 4000,
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: tipo, data: bytesParaBase64(buf) } },
+          { type: 'text', text: prompt },
+        ] }],
+      }),
+    });
+  } catch (_) { return json({ error: 'ia_indisponivel' }, 502); }
+  if (!resp.ok) return json({ error: 'ia_indisponivel', status: resp.status }, 502);
+  let out;
+  try { out = await resp.json(); } catch { return json({ error: 'ia_resposta_invalida' }, 502); }
+  const texto = (out.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
+  const ini = texto.indexOf('{'), fim = texto.lastIndexOf('}');
+  let dados = null;
+  try { dados = JSON.parse(texto.slice(ini, fim + 1)); } catch (_) {}
+  if (!dados || !Array.isArray(dados.colaboradores)) return json({ error: 'ia_resposta_invalida' }, 502);
+  const validas = new Set(siglas);
+  const lista = dados.colaboradores.slice(0, 300).map(c => {
+    const docs = {};
+    if (c && c.docs && typeof c.docs === 'object') {
+      for (const [sg, d] of Object.entries(c.docs)) if (validas.has(sg) && typeof d === 'string' && DATA_ISO.test(d)) docs[sg] = d;
+    }
+    return { nome: String((c && c.nome) || '').trim().slice(0, 200), cargo: String((c && c.cargo) || '').trim().slice(0, 120), docs };
+  }).filter(c => c.nome);
+  return json({ ok: true, colaboradores: lista });
+}
+
 async function handleFoto(request, env, url) {
   const session = await obterSessao(request, env);
   if (!session) return json({ error: 'unauthorized' }, 401);
@@ -1135,6 +1190,7 @@ export default {
       if (p === '/api/colaborador-lote') return await handleColaboradorLote(request, env, url);
       if (p === '/api/certificado') return await handleCertificado(request, env, url);
       if (p === '/api/foto') return await handleFoto(request, env, url);
+      if (p === '/api/ocr-lista') return await handleOcrLista(request, env, url);
       if (p === '/api/doctype') return await handleDoctype(request, env, url);
       if (p === '/api/config') return await handleConfig(request, env, url);
       if (p === '/api/users') return await handleUsers(request, env, url);

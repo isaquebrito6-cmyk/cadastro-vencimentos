@@ -483,6 +483,42 @@
   </div>
 </div>
 
+<div id="scanModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:250;align-items:center;justify-content:center;padding:14px;">
+  <div style="width:100%;max-width:720px;max-height:94vh;overflow-y:auto;background:var(--bg-panel);border:1px solid var(--line);border-radius:6px;padding:20px 20px 16px;">
+    <h2 style="font-family:'Oswald',sans-serif;font-size:17px;font-weight:600;margin:0 0 6px;">📷 Escanear lista de colaboradores</h2>
+    <p style="font-size:12px;color:var(--text-dim);margin:0 0 12px;line-height:1.55;">Fotografe a lista (folha reta, bem iluminada, sem sombra). O app recorta só o papel, lê os nomes e mostra tudo para você <b>conferir e corrigir</b> antes de importar. Nada é gravado até você confirmar.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+      <label class="btn primary" for="scanCamera" style="cursor:pointer;">📷 Tirar foto</label>
+      <input type="file" id="scanCamera" accept="image/*" capture="environment" style="display:none;">
+      <label class="btn" for="scanGaleria" style="cursor:pointer;">🖼 Escolher imagem</label>
+      <input type="file" id="scanGaleria" accept="image/*" style="display:none;">
+    </div>
+    <div id="scanEtapaImg" style="display:none;">
+      <canvas id="scanCanvas" style="width:100%;max-height:50vh;object-fit:contain;background:#111;border:1px solid var(--line);border-radius:4px;"></canvas>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0;">
+        <button type="button" class="btn" id="scanGirarE" title="Girar para a esquerda">↺</button>
+        <button type="button" class="btn" id="scanGirarD" title="Girar para a direita">↻</button>
+        <label style="font-size:12px;display:flex;gap:6px;align-items:center;"><input type="checkbox" id="scanRecorte" checked> Recortar o papel</label>
+        <label style="font-size:12px;display:flex;gap:6px;align-items:center;"><input type="checkbox" id="scanMelhorar" checked> Melhorar contraste</label>
+        <button type="button" class="btn primary" id="scanLer" style="margin-left:auto;">🔎 Ler lista</button>
+      </div>
+    </div>
+    <div id="scanStatus" style="font-size:12px;color:var(--text-dim);min-height:16px;margin-bottom:8px;"></div>
+    <div id="scanEtapaRes" style="display:none;">
+      <div class="field" style="margin-bottom:8px;">
+        <label for="scanDocSel">Documento das datas lidas na lista (se houver)</label>
+        <select id="scanDocSel" style="width:100%;"></select>
+      </div>
+      <div id="scanLinhas" style="max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:4px;margin-bottom:8px;"></div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;"><button type="button" class="btn" id="scanAddLinha">＋ Adicionar linha</button><span id="scanContagem" style="font-size:12px;color:var(--text-dim);align-self:center;"></span></div>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn" id="scanFechar" style="flex:1;justify-content:center;">Fechar</button>
+      <button class="btn primary" id="scanContinuar" style="flex:1;justify-content:center;" disabled>Continuar para importar</button>
+    </div>
+  </div>
+</div>
+
 <div id="novaEmpresaModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:260;align-items:center;justify-content:center;padding:20px;">
   <div style="width:100%;max-width:360px;background:var(--bg-panel);border:1px solid var(--line);border-radius:6px;padding:24px 26px;">
     <h2 style="font-family:'Oswald',sans-serif;font-size:16px;font-weight:600;margin:0 0 16px;">+ Nova empresa</h2>
@@ -553,6 +589,7 @@
   <div class="toolbar">
     <button class="btn primary" id="addBtn">＋ Novo colaborador</button>
     <button class="btn" id="importBtn">⬆ Importar lista</button>
+    <button class="btn" id="scanBtn">📷 Escanear lista</button>
     <button class="btn ghost" id="openColabTrashBtn">🗑️ Lixeira</button>
     <label class="sel-todos" title="Selecionar todos os colaboradores que estão na lista"><input type="checkbox" id="selTodos"> Todos</label>
     <div class="search-box grow"><input id="searchInput" type="text" placeholder="Buscar colaborador... (atalho: /)"></div>
@@ -2306,6 +2343,229 @@ async function confirmarImport(){
   }finally{ IMPORTANDO = false; }
 }
 
+// ================= Escanear lista (câmera + recorte + leitura) =================
+const SCAN = {img: null, rot: 0, linhas: [], lendo: false};
+const SCAN_CABECALHOS = new Set(['NOME','NOMES','COLABORADOR','COLABORADORES','FUNCIONARIO','FUNCIONARIOS','FUNCAO','CARGO','ASSINATURA','DATA','LISTA','PRESENCA','EMPRESA','ASO','VENCIMENTO','VALIDADE','TREINAMENTO','RG','CPF','SETOR','N','NR','NO','DE','DA','DO','E','PARA','TURMA','INSTRUTOR','CARGA','HORARIA','LOCAL','PARTICIPANTES','ITEM']);
+
+function scanAbrir(){
+  SCAN.img = null; SCAN.rot = 0; SCAN.linhas = [];
+  document.getElementById('scanEtapaImg').style.display = 'none';
+  document.getElementById('scanEtapaRes').style.display = 'none';
+  document.getElementById('scanStatus').textContent = '';
+  document.getElementById('scanContinuar').disabled = true;
+  document.getElementById('scanCamera').value = ''; document.getElementById('scanGaleria').value = '';
+  const sel = document.getElementById('scanDocSel');
+  sel.innerHTML = '<option value="">(não usar datas)</option>' + DOC_ORDER.map(sg => `<option value="${escapeHTML(sg)}" ${sg === 'ASO' ? 'selected' : ''}>${escapeHTML(sg)}</option>`).join('');
+  document.getElementById('scanModal').style.display = 'flex';
+}
+function scanCarregarArquivo(file){
+  if(!file) return;
+  const url = URL.createObjectURL(file), img = new Image();
+  img.onload = () => {
+    URL.revokeObjectURL(url);
+    const r = Math.min(1, 2200 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas'); c.width = Math.round(img.width * r); c.height = Math.round(img.height * r);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    SCAN.img = c; SCAN.rot = 0;
+    document.getElementById('scanEtapaImg').style.display = 'block';
+    document.getElementById('scanEtapaRes').style.display = 'none';
+    document.getElementById('scanContinuar').disabled = true;
+    document.getElementById('scanStatus').textContent = '';
+    scanProcessar();
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); document.getElementById('scanStatus').textContent = 'Não foi possível abrir essa imagem.'; };
+  img.src = url;
+}
+// Gira, recorta o papel (região clara) e achata a iluminação para o texto ficar nítido.
+function scanProcessar(){
+  if(!SCAN.img) return;
+  let c = SCAN.img;
+  const rot = ((SCAN.rot % 4) + 4) % 4;
+  if(rot){
+    const r = document.createElement('canvas'); const troca = rot % 2 === 1;
+    r.width = troca ? c.height : c.width; r.height = troca ? c.width : c.height;
+    const x = r.getContext('2d'); x.translate(r.width/2, r.height/2); x.rotate(rot * Math.PI / 2); x.drawImage(c, -c.width/2, -c.height/2);
+    c = r;
+  }
+  if(document.getElementById('scanRecorte').checked) c = scanRecortarPapel(c);
+  if(document.getElementById('scanMelhorar').checked) c = scanMelhorarContraste(c);
+  const out = document.getElementById('scanCanvas'); out.width = c.width; out.height = c.height;
+  out.getContext('2d').drawImage(c, 0, 0);
+}
+function scanRecortarPapel(c){
+  const W = 240, esc = W / c.width, H = Math.max(1, Math.round(c.height * esc));
+  const t = document.createElement('canvas'); t.width = W; t.height = H;
+  const tx = t.getContext('2d'); tx.drawImage(c, 0, 0, W, H);
+  const d = tx.getImageData(0, 0, W, H).data, g = new Uint8Array(W * H), hist = new Array(256).fill(0);
+  for(let i = 0; i < W * H; i++){ const v = Math.round(0.299*d[i*4] + 0.587*d[i*4+1] + 0.114*d[i*4+2]); g[i] = v; hist[v]++; }
+  // limiar de Otsu: separa a folha clara do fundo
+  let soma = 0; for(let i = 0; i < 256; i++) soma += i * hist[i];
+  let sB = 0, wB = 0, max = 0, lim = 128;
+  for(let i = 0; i < 256; i++){ wB += hist[i]; if(!wB) continue; const wF = W*H - wB; if(!wF) break; sB += i * hist[i];
+    const mB = sB / wB, mF = (soma - sB) / wF, v = wB * wF * (mB - mF) * (mB - mF); if(v > max){ max = v; lim = i; } }
+  const cl = new Uint32Array(H), co = new Uint32Array(W);
+  for(let y = 0; y < H; y++) for(let x = 0; x < W; x++) if(g[y*W + x] > lim){ cl[y]++; co[x]++; }
+  const ach = (arr, n, minFrac) => { let a = 0, b = arr.length - 1; while(a < b && arr[a] < n * minFrac) a++; while(b > a && arr[b] < n * minFrac) b--; return [a, b]; };
+  const [y0, y1] = ach(cl, W, 0.35), [x0, x1] = ach(co, H, 0.35);
+  const area = ((x1 - x0 + 1) * (y1 - y0 + 1)) / (W * H);
+  if(area < 0.25 || area > 0.97) return c;           // não achou folha clara de forma confiável: mantém a foto inteira
+  const m = 0.01, X0 = Math.max(0, x0 / W - m), X1 = Math.min(1, (x1 + 1) / W + m), Y0 = Math.max(0, y0 / H - m), Y1 = Math.min(1, (y1 + 1) / H + m);
+  const o = document.createElement('canvas'); o.width = Math.round((X1 - X0) * c.width); o.height = Math.round((Y1 - Y0) * c.height);
+  o.getContext('2d').drawImage(c, X0 * c.width, Y0 * c.height, o.width, o.height, 0, 0, o.width, o.height);
+  return o;
+}
+function scanMelhorarContraste(c){
+  const w = c.width, h = c.height;
+  const sm = document.createElement('canvas'); sm.width = Math.max(1, Math.round(w / 24)); sm.height = Math.max(1, Math.round(h / 24));
+  const sx = sm.getContext('2d'); sx.imageSmoothingQuality = 'high'; sx.drawImage(c, 0, 0, sm.width, sm.height);
+  const bgc = document.createElement('canvas'); bgc.width = w; bgc.height = h;
+  const bx = bgc.getContext('2d'); bx.imageSmoothingEnabled = true; bx.imageSmoothingQuality = 'high'; bx.drawImage(sm, 0, 0, w, h);
+  const o = document.createElement('canvas'); o.width = w; o.height = h; const ox = o.getContext('2d');
+  ox.drawImage(c, 0, 0);
+  const a = ox.getImageData(0, 0, w, h), b = bx.getImageData(0, 0, w, h);
+  for(let i = 0; i < a.data.length; i += 4){
+    const g = 0.299*a.data[i] + 0.587*a.data[i+1] + 0.114*a.data[i+2];
+    const f = 0.299*b.data[i] + 0.587*b.data[i+1] + 0.114*b.data[i+2];
+    let v = Math.min(255, g / Math.max(f, 40) * 240);          // divide pela iluminação de fundo (tira sombras)
+    v = v < 150 ? v * 0.75 : Math.min(255, 150*0.75 + (v - 150) * 1.9); // escurece o texto, clareia o papel
+    a.data[i] = a.data[i+1] = a.data[i+2] = v;
+  }
+  ox.putImageData(a, 0, 0);
+  return o;
+}
+
+function scanDataISO(txt){
+  const m = /(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/.exec(txt);
+  if(!m) return '';
+  let y = +m[3]; if(y < 100) y += 2000;
+  const iso = `${String(y).padStart(4,'0')}-${String(+m[2]).padStart(2,'0')}-${String(+m[1]).padStart(2,'0')}`;
+  return dataISOValida(iso) ? iso : '';
+}
+// Transforma o texto do OCR em linhas {nome, cargo, data}. Ignora cabeçalhos, números de ordem e rabiscos.
+function scanParseTexto(texto){
+  const out = [];
+  String(texto || '').split(/\r?\n/).forEach(linha => {
+    let t = linha.replace(/[\t|_]+/g, ' ').trim();
+    if(!t) return;
+    t = t.replace(/\b[\dOoIl]{1,2}[\/.\-][\dOoIl]{1,2}[\/.\-][\dOoIl]{2,4}\b/g, d => d.replace(/[Oo]/g, '0').replace(/[Il]/g, '1'));
+    const data = scanDataISO(t);
+    t = t.replace(/\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}/g, ' ').replace(/^\s*[\dOoIl]{1,3}\s*[.)\-–:]\s*/, ' ').replace(/^\s*\d{1,3}\s+/, ' ');
+    let nome = t.replace(/[^A-Za-zÀ-ÿ'\- ]/g, ' ').replace(/(^|\s)[-']+|[-']+(\s|$)/g, ' ').replace(/\s+/g, ' ').trim();
+    let palavras = nome.split(' ').filter(p => p.length > 1 || /^[A-ZÀ-Ý]$/.test(p));
+    if(palavras.length > 2 && palavras[0].length === 1) palavras = palavras.slice(1);   // sobra do número da linha (ex.: "05." lido como "O")
+    if(palavras.length < 2) return;
+    const semAcento = normTexto(nome).toUpperCase().split(' ');
+    if(semAcento.every(p => SCAN_CABECALHOS.has(p))) return;
+    if(palavras.join('').length < 6) return;
+    out.push({nome: palavras.join(' ').toUpperCase(), cargo: '', data, docs: {}});
+  });
+  return out;
+}
+function scanCarregarScript(src){
+  return new Promise((res, rej) => {
+    if(window.Tesseract) return res();
+    const s = document.createElement('script'); s.src = src; s.onload = () => res(); s.onerror = () => rej(new Error('Não foi possível carregar o leitor de texto (precisa de internet na primeira vez).'));
+    document.head.appendChild(s);
+  });
+}
+function scanCanvasParaBlob(c, tipo, q){ return new Promise(r => c.toBlob(r, tipo, q)); }
+async function scanLerLista(){
+  if(SCAN.lendo || !SCAN.img) return;
+  const st = document.getElementById('scanStatus'), btn = document.getElementById('scanLer');
+  SCAN.lendo = true; btn.disabled = true;
+  try{
+    const cv = document.getElementById('scanCanvas');
+    let linhas = null;
+    // 1) IA no servidor (melhor leitura), se estiver configurada.
+    st.textContent = 'Lendo a lista…';
+    try{
+      let alvo = cv;
+      if(Math.max(cv.width, cv.height) > 1800){ const r = 1800 / Math.max(cv.width, cv.height); alvo = document.createElement('canvas'); alvo.width = Math.round(cv.width*r); alvo.height = Math.round(cv.height*r); alvo.getContext('2d').drawImage(cv, 0, 0, alvo.width, alvo.height); }
+      const blob = await scanCanvasParaBlob(alvo, 'image/jpeg', 0.85);
+      if(blob && blob.size < 3*1024*1024){
+        const r = await apiFetch('/api/ocr-lista', {method:'POST', body: blob, headers: {'Content-Type': 'image/jpeg'}});
+        if(r && Array.isArray(r.colaboradores)) linhas = r.colaboradores.map(c => ({nome: c.nome.toUpperCase(), cargo: c.cargo || '', data: '', docs: c.docs || {}}));
+      }
+    }catch(err){ /* IA não configurada ou indisponível: segue para a leitura no aparelho */ }
+    // 2) Leitura no próprio aparelho (Tesseract).
+    if(!linhas){
+      st.textContent = 'Carregando o leitor de texto (só demora na primeira vez)…';
+      await scanCarregarScript(window.TESSERACT_SRC || 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js');
+      const opts = {logger: m => { if(m.status === 'recognizing text') st.textContent = `Lendo a lista… ${Math.round((m.progress || 0) * 100)}%`; }};
+      if(window.TESSERACT_OPTS) Object.assign(opts, window.TESSERACT_OPTS);
+      const res = await Tesseract.recognize(cv, 'por', opts);
+      linhas = scanParseTexto(res.data.text);
+    }
+    SCAN.linhas = linhas;
+    st.textContent = linhas.length ? 'Confira os nomes abaixo, corrija o que precisar e apague o que não for colaborador.' : 'Não consegui ler nomes nessa imagem. Tente outra foto (mais reta e iluminada) ou adicione as linhas à mão.';
+    scanRenderLinhas();
+    document.getElementById('scanEtapaRes').style.display = 'block';
+  }catch(err){
+    st.textContent = 'Erro ao ler: ' + (err && err.message || err);
+  }finally{ SCAN.lendo = false; btn.disabled = false; }
+}
+function scanRenderLinhas(){
+  const box = document.getElementById('scanLinhas');
+  box.innerHTML = SCAN.linhas.map((l, i) => {
+    const docsTxt = Object.keys(l.docs || {}).map(sg => `${escapeHTML(sg)} ${fmtDate(l.docs[sg])}`).join(' · ');
+    const jaExiste = DATA.some(e => chaveNome(e.nome) === chaveNome(l.nome));
+    return `<div style="display:flex;gap:6px;align-items:center;padding:6px;border-top:${i ? '1px solid var(--line)' : '0'};flex-wrap:wrap;">
+      <input type="text" data-scan-nome="${i}" value="${escapeHTML(l.nome)}" placeholder="Nome" style="flex:1 1 200px;min-width:0;">
+      <input type="text" data-scan-cargo="${i}" value="${escapeHTML(l.cargo || '')}" placeholder="Cargo" style="flex:1 1 110px;min-width:0;">
+      <input type="date" data-scan-data="${i}" value="${escapeHTML(l.data || '')}" title="Data lida (documento escolhido acima)" style="flex:0 0 140px;">
+      <button type="button" class="btn" data-scan-del="${i}" title="Remover linha">✕</button>
+      ${docsTxt ? `<div style="flex-basis:100%;font-size:11px;color:var(--text-dim);">Lido pela IA: ${docsTxt}</div>` : ''}
+      ${jaExiste ? `<div style="flex-basis:100%;font-size:11px;color:var(--orange);">Já cadastrado — será atualizado, não duplicado.</div>` : ''}
+    </div>`;
+  }).join('');
+  document.getElementById('scanContagem').textContent = SCAN.linhas.length + ' linha(s)';
+  document.getElementById('scanContinuar').disabled = !SCAN.linhas.some(l => l.nome.trim());
+}
+function scanContinuar(){
+  const sg = document.getElementById('scanDocSel').value;
+  const linhas = SCAN.linhas.filter(l => l.nome.trim());
+  if(!linhas.length) return;
+  const cab = ['Nome', 'Cargo'];
+  const docsUsados = new Set(); if(sg) docsUsados.add(sg);
+  linhas.forEach(l => Object.keys(l.docs || {}).forEach(d => docsUsados.add(d)));
+  docsUsados.forEach(d => cab.push(d));
+  const lim = v => String(v || '').replace(/[;\r\n\t]/g, ' ').trim();
+  const iso2br = iso => iso ? iso.split('-').reverse().join('/') : '';
+  const linhasCsv = linhas.map(l => {
+    const cels = [lim(l.nome), lim(l.cargo)];
+    docsUsados.forEach(d => { const iso = (l.docs && l.docs[d]) || (d === sg ? l.data : ''); cels.push(iso2br(iso)); });
+    return cels.join(';');
+  });
+  document.getElementById('scanModal').style.display = 'none';
+  abrirImport();
+  document.getElementById('importTexto').value = [cab.join(';'), ...linhasCsv].join('\n');
+  renderPreviaImport();
+}
+function scanLigar(){
+  document.getElementById('scanBtn').addEventListener('click', scanAbrir);
+  document.getElementById('scanFechar').addEventListener('click', () => { document.getElementById('scanModal').style.display = 'none'; });
+  ['scanCamera', 'scanGaleria'].forEach(id => document.getElementById(id).addEventListener('change', ev => scanCarregarArquivo(ev.target.files[0])));
+  document.getElementById('scanGirarE').addEventListener('click', () => { SCAN.rot--; scanProcessar(); });
+  document.getElementById('scanGirarD').addEventListener('click', () => { SCAN.rot++; scanProcessar(); });
+  document.getElementById('scanRecorte').addEventListener('change', scanProcessar);
+  document.getElementById('scanMelhorar').addEventListener('change', scanProcessar);
+  document.getElementById('scanLer').addEventListener('click', scanLerLista);
+  document.getElementById('scanContinuar').addEventListener('click', scanContinuar);
+  document.getElementById('scanAddLinha').addEventListener('click', () => { SCAN.linhas.push({nome: '', cargo: '', data: '', docs: {}}); scanRenderLinhas(); });
+  const box = document.getElementById('scanLinhas');
+  box.addEventListener('input', ev => {
+    const t = ev.target, ni = t.dataset.scanNome, ci = t.dataset.scanCargo, di = t.dataset.scanData;
+    if(ni !== undefined) SCAN.linhas[ni].nome = t.value.toUpperCase().replace(/\s{2,}/g, ' ');
+    if(ci !== undefined) SCAN.linhas[ci].cargo = t.value;
+    if(di !== undefined) SCAN.linhas[di].data = t.value;
+    document.getElementById('scanContinuar').disabled = !SCAN.linhas.some(l => l.nome.trim());
+  });
+  box.addEventListener('click', ev => {
+    const b = ev.target.closest('[data-scan-del]'); if(!b) return;
+    SCAN.linhas.splice(+b.dataset.scanDel, 1); scanRenderLinhas();
+  });
+}
+
 // ================= Foto + carteirinha de treinamento =================
 let EXTRAS = {};     // colaborador_id -> {cargo, maquina}
 let FOTOS = {};      // colaborador_id -> atualizado_em
@@ -3664,6 +3924,7 @@ async function iniciarApp(){
     if(box && arquivos.length) enviarCertificados(box.dataset.certColab, box.dataset.certSigla, arquivos);
   });
   document.getElementById('importBtn').addEventListener('click', abrirImport);
+  scanLigar();
   document.getElementById('importCancelar').addEventListener('click', () => {
     document.getElementById('importModal').style.display = 'none';
   });
