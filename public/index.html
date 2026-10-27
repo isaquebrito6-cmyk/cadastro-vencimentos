@@ -122,6 +122,11 @@
   tbody tr:hover{background:var(--bg-panel-2);}
   td{padding:10px 10px;vertical-align:middle;}
   td.nm-cell{font-weight:600;}
+  .avatar{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:50%;overflow:hidden;vertical-align:middle;margin:0 8px 0 4px;background:#2a3038;color:#aab4be;font-size:13px;font-weight:700;border:2px solid var(--line);flex:none;cursor:pointer;}
+  .avatar img{width:100%;height:100%;object-fit:cover;display:block;}
+  .avatar.sem{cursor:default;}
+  #fotoZoom{position:fixed;inset:0;background:rgba(0,0,0,.8);display:flex;align-items:center;justify-content:center;z-index:9999;}
+  #fotoZoom img{max-width:88vw;max-height:80vh;border-radius:10px;border:3px solid #fff;}
   .flag{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--amber);border:1px solid var(--amber-dim);padding:1px 5px;border-radius:2px;margin-left:8px;text-transform:uppercase;}
   .status-pill{display:inline-flex;align-items:center;gap:5px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;padding:3px 8px;border-radius:2px;white-space:nowrap;}
   .chips-cell{display:flex;gap:4px;flex-wrap:wrap;}
@@ -557,6 +562,7 @@
       <option value="a_vencer">A vencer (conforme aviso)</option>
       <option value="valido">Válido</option>
       <option value="sem_registro">Sem registro</option>
+      <option value="sem_foto">Sem foto</option>
     </select>
     <select id="docFilter">
       <option value="">Documento: todos</option>
@@ -1463,6 +1469,7 @@ function getFiltered(){
       const alvo = (e.nome + ' ' + (e.notas||[]).join(' ')).toLowerCase();
       if(!alvo.includes(q)) return false;
     }
+    if(statusF === 'sem_foto') return !FOTOS[e.id] && (!docF || e.docs[docF]);
     if(docF){
       const stDoc = statusFor(e.docs[docF]);
       if(statusF && stDoc !== statusF) return false;
@@ -1647,7 +1654,7 @@ function rowHTML(e, docF){
   const certFlag = nCerts ? `<span class="flag" title="${nCerts} certificado(s) anexado(s)" style="text-transform:none;">📎 ${nCerts}</span>` : '';
 
   let html = `<tr>
-    <td class="nm-cell"><input type="checkbox" class="colab-check" data-sel="${escapeHTML(e.id)}" aria-label="Selecionar ${escapeHTML(e.nome)}" ${SEL.has(e.id) ? 'checked' : ''}>${escapeHTML(e.nome)}${flag}${certFlag}</td>
+    <td class="nm-cell"><input type="checkbox" class="colab-check" data-sel="${escapeHTML(e.id)}" aria-label="Selecionar ${escapeHTML(e.nome)}" ${SEL.has(e.id) ? 'checked' : ''}>${avatarHTML(e)}<span class="nm-txt">${escapeHTML(e.nome)}</span>${flag}${certFlag}</td>
     <td><span class="status-pill" style="color:${sm.cor};background:${sm.bg}">${sm.label}${diasStatusTxt}</span></td>
     <td><div class="chips-cell">${chips}</div></td>
     <td style="font-family:'IBM Plex Mono',monospace;font-size:12px">${proxTxt}</td>
@@ -2385,7 +2392,38 @@ async function obterFotoURL(colabId){
   FOTO_URLS[colabId] = {v, url};
   return url;
 }
+function avatarHTML(e){
+  if(FOTOS[e.id]){
+    const c = FOTO_URLS[e.id], src = c && c.v === FOTOS[e.id] ? c.url : '';
+    return `<span class="avatar" data-avatar="${escapeHTML(e.id)}" title="Ver foto"><img data-foto-lazy="${escapeHTML(e.id)}" ${src ? `src="${src}"` : ''} alt="" loading="lazy"></span>`;
+  }
+  const ini = e.nome.trim().split(/\s+/).filter(Boolean).filter((w,i,a) => i === 0 || i === a.length - 1).map(w => w[0]).join('').toUpperCase();
+  return `<span class="avatar sem" title="Sem foto">${escapeHTML(ini || '?')}</span>`;
+}
+let _obsFotos = null;
+function hidratarAvatares(){
+  const imgs = document.querySelectorAll('img[data-foto-lazy]');
+  const carrega = async img => {
+    if(img.getAttribute('src')) return;
+    try{ const u = await obterFotoURL(img.dataset.fotoLazy); if(u) img.src = u; }catch(_){ const sp = img.closest('.avatar'); if(sp) sp.classList.add('sem'); }
+  };
+  if(!('IntersectionObserver' in window)){ imgs.forEach(carrega); return; }
+  if(_obsFotos) _obsFotos.disconnect();
+  _obsFotos = new IntersectionObserver(ents => ents.forEach(en => { if(en.isIntersecting){ _obsFotos.unobserve(en.target); carrega(en.target); } }), {rootMargin: '300px'});
+  imgs.forEach(i => _obsFotos.observe(i));
+}
+document.addEventListener('click', async ev => {
+  const av = ev.target.closest && ev.target.closest('.avatar[data-avatar]');
+  if(!av) return;
+  ev.preventDefault(); ev.stopPropagation();
+  try{
+    const u = await obterFotoURL(av.dataset.avatar); if(!u) return;
+    const d = document.createElement('div'); d.id = 'fotoZoom'; d.innerHTML = `<img src="${u}" alt="Foto">`;
+    d.addEventListener('click', () => d.remove()); document.body.appendChild(d);
+  }catch(_){}
+}, true);
 function hidratarFotos(){
+  hidratarAvatares();
   document.querySelectorAll('img[data-foto-img]').forEach(async img => {
     if(img.getAttribute('src')) return;
     try{ const u = await obterFotoURL(img.dataset.fotoImg); if(u) img.src = u; }catch(err){ /* sem foto: fica o espaço vazio */ }
