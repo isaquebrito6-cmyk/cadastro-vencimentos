@@ -486,12 +486,14 @@
 <div id="scanModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:250;align-items:center;justify-content:center;padding:14px;">
   <div style="width:100%;max-width:720px;max-height:94vh;overflow-y:auto;background:var(--bg-panel);border:1px solid var(--line);border-radius:6px;padding:20px 20px 16px;">
     <h2 style="font-family:'Oswald',sans-serif;font-size:17px;font-weight:600;margin:0 0 6px;">📷 Escanear lista de colaboradores</h2>
-    <p style="font-size:12px;color:var(--text-dim);margin:0 0 12px;line-height:1.55;">Fotografe a lista (folha reta, bem iluminada, sem sombra). O app recorta só o papel, lê os nomes e mostra tudo para você <b>conferir e corrigir</b> antes de importar. Nada é gravado até você confirmar.</p>
+    <p style="font-size:12px;color:var(--text-dim);margin:0 0 12px;line-height:1.55;">Fotografe a lista (folha reta, bem iluminada, sem sombra) ou cole uma imagem (Ctrl+V). O app recorta só o papel, lê os nomes e mostra tudo para você <b>conferir e corrigir</b> antes de importar. Nada é gravado até você confirmar.</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
       <label class="btn primary" for="scanCamera" style="cursor:pointer;">📷 Tirar foto</label>
       <input type="file" id="scanCamera" accept="image/*" capture="environment" style="display:none;">
       <label class="btn" for="scanGaleria" style="cursor:pointer;">🖼 Escolher imagem</label>
+      <button type="button" class="btn" id="scanColar" title="Cole uma imagem copiada (Ctrl+V)">📋 Colar imagem</button>
       <input type="file" id="scanGaleria" accept="image/*" style="display:none;">
+      <button type="button" class="btn" id="scanColar" title="Cole uma imagem copiada (Ctrl+V)">📋 Colar imagem</button>
     </div>
     <div id="scanEtapaImg" style="display:none;">
       <canvas id="scanCanvas" style="width:100%;max-height:50vh;object-fit:contain;background:#111;border:1px solid var(--line);border-radius:4px;"></canvas>
@@ -2343,6 +2345,44 @@ async function confirmarImport(){
   }finally{ IMPORTANDO = false; }
 }
 
+// ================= Colar imagem (Ctrl+V ou botão) =================
+function imagemDoEvento(ev){
+  const itens = (ev.clipboardData && ev.clipboardData.items) || [];
+  for(const it of itens){ if(it.kind === 'file' && it.type.startsWith('image/')) return it.getAsFile(); }
+  return null;
+}
+async function imagemDaAreaDeTransferencia(){
+  if(!navigator.clipboard || !navigator.clipboard.read) throw new Error('Seu navegador não deixa o app ler a área de transferência. Use Ctrl+V ou "Escolher imagem".');
+  const lista = await navigator.clipboard.read();
+  for(const item of lista){
+    const t = item.types.find(x => x.startsWith('image/'));
+    if(t) return new File([await item.getType(t)], 'colada.png', {type: t});
+  }
+  throw new Error('Não há imagem copiada.');
+}
+document.addEventListener('paste', ev => {
+  const arq = imagemDoEvento(ev);
+  if(!arq) return;
+  const alvo = ev.target;
+  if(alvo && /^(INPUT|TEXTAREA)$/.test(alvo.tagName) && alvo.type !== 'checkbox' && !document.getElementById('scanModal').style.display.includes('flex')) return;
+  if(document.getElementById('scanModal').style.display === 'flex'){ ev.preventDefault(); scanCarregarArquivo(arq); return; }
+  if(openEditId){
+    ev.preventDefault();
+    const box = document.querySelector(`[data-foto-colab="${CSS.escape(openEditId)}"]`);
+    const e = DATA.find(x => x.id === openEditId);
+    if(e && confirm(`Usar a imagem colada como foto de "${e.nome}"? Ela será recortada no formato da carteirinha.`)) enviarFoto(openEditId, arq, box);
+  }
+});
+document.addEventListener('click', async ev => {
+  const b = ev.target.closest && ev.target.closest('[data-foto-colar]');
+  if(!b) return;
+  ev.preventDefault();
+  try{
+    const arq = await imagemDaAreaDeTransferencia();
+    enviarFoto(b.dataset.fotoColar, arq, b.closest('[data-foto-colab]'));
+  }catch(err){ showToast(err.message || 'Não foi possível colar.', 'error'); }
+});
+
 // ================= Escanear lista (câmera + recorte + leitura) =================
 const SCAN = {img: null, rot: 0, linhas: [], lendo: false};
 const SCAN_CABECALHOS = new Set(['NOME','NOMES','COLABORADOR','COLABORADORES','FUNCIONARIO','FUNCIONARIOS','FUNCAO','CARGO','ASSINATURA','DATA','LISTA','PRESENCA','EMPRESA','ASO','VENCIMENTO','VALIDADE','TREINAMENTO','RG','CPF','SETOR','N','NR','NO','DE','DA','DO','E','PARA','TURMA','INSTRUTOR','CARGA','HORARIA','LOCAL','PARTICIPANTES','ITEM']);
@@ -2550,6 +2590,7 @@ function scanLigar(){
   document.getElementById('scanRecorte').addEventListener('change', scanProcessar);
   document.getElementById('scanMelhorar').addEventListener('change', scanProcessar);
   document.getElementById('scanLer').addEventListener('click', scanLerLista);
+  document.getElementById('scanColar').addEventListener('click', async () => { try{ scanCarregarArquivo(await imagemDaAreaDeTransferencia()); }catch(err){ document.getElementById('scanStatus').textContent = err.message; } });
   document.getElementById('scanContinuar').addEventListener('click', scanContinuar);
   document.getElementById('scanAddLinha').addEventListener('click', () => { SCAN.linhas.push({nome: '', cargo: '', data: '', docs: {}}); scanRenderLinhas(); });
   const box = document.getElementById('scanLinhas');
@@ -2565,6 +2606,46 @@ function scanLigar(){
     SCAN.linhas.splice(+b.dataset.scanDel, 1); scanRenderLinhas();
   });
 }
+
+// ================= Colar imagem (Ctrl+V ou botão) =================
+function imagemDoClipboardEvento(ev){
+  const itens = (ev.clipboardData && ev.clipboardData.items) || [];
+  for(const it of itens){ if(it.kind === 'file' && it.type.startsWith('image/')) return it.getAsFile(); }
+  return null;
+}
+async function imagemDoClipboardBotao(){
+  if(!navigator.clipboard || !navigator.clipboard.read) throw new Error('Este navegador não deixa colar por botão. Use Ctrl+V ou "Escolher imagem".');
+  const itens = await navigator.clipboard.read();
+  for(const it of itens){
+    const tipo = it.types.find(t => t.startsWith('image/'));
+    if(tipo) return new File([await it.getType(tipo)], 'colada.' + tipo.split('/')[1], {type: tipo});
+  }
+  throw new Error('Não há imagem copiada. Copie uma imagem primeiro.');
+}
+function aplicarImagemColada(file){
+  if(document.getElementById('scanModal').style.display === 'flex'){ scanCarregarArquivo(file); return true; }
+  if(openEditId){
+    const box = document.querySelector(`[data-foto-colab="${CSS.escape(openEditId)}"]`);
+    if(box){ enviarFoto(openEditId, file, box); return true; }
+  }
+  return false;
+}
+document.addEventListener('paste', ev => {
+  const f = imagemDoClipboardEvento(ev);
+  if(!f) return;
+  if(aplicarImagemColada(f)) ev.preventDefault();
+  else showToast('Abra a ficha de um colaborador (✎) ou o escaneamento para colar a imagem.');
+});
+document.addEventListener('click', async ev => {
+  const b = ev.target.closest && ev.target.closest('[data-foto-colar], #scanColar');
+  if(!b) return;
+  ev.preventDefault();
+  try{
+    const f = await imagemDoClipboardBotao();
+    if(b.id === 'scanColar') scanCarregarArquivo(f);
+    else { const box = b.closest('[data-foto-colab]'); enviarFoto(b.dataset.fotoColar, f, box); }
+  }catch(err){ showToast(err.message || 'Não foi possível colar.', 'error'); }
+});
 
 // ================= Foto + carteirinha de treinamento =================
 let EXTRAS = {};     // colaborador_id -> {cargo, maquina}
@@ -2623,6 +2704,8 @@ function fotoBoxHTML(e){
       ${img}
       <div class="foto-acoes">
         <label class="btn ghost foto-btn">📷 ${tem ? 'Trocar foto' : 'Enviar foto'}<input type="file" accept="image/*" data-foto-input hidden></label>
+        <button type="button" class="btn ghost foto-btn" data-foto-colar="${escapeHTML(e.id)}" title="Cole uma imagem copiada (Ctrl+V)">📋 Colar foto</button>
+        <a href="#" class="btn ghost foto-btn" data-foto-colar="${escapeHTML(e.id)}" title="Cole uma imagem copiada (também vale Ctrl+V com a ficha aberta)">📋 Colar foto</a>
         ${tem ? `<a href="#" class="clear-date" data-foto-del="${escapeHTML(e.id)}">remover foto</a>` : ''}
         <a href="#" class="btn ghost foto-btn" data-assin-abrir="assin:${escapeHTML(e.id)}" data-assin-titulo="Assinatura de ${escapeHTML(e.nome)}">✍ ${FOTOS['assin:' + e.id] ? 'Refazer assinatura' : 'Assinatura digital'}</a>
         ${FOTOS['assin:' + e.id] ? `<span style="display:flex;gap:8px;align-items:center;"><img class="assin-thumb" data-foto-img="assin:${escapeHTML(e.id)}" alt="Assinatura"><a href="#" class="clear-date" data-assin-del="assin:${escapeHTML(e.id)}">remover assinatura</a></span>` : ''}
@@ -2695,7 +2778,7 @@ function prepararFoto(file){
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
-    img.onload = () => {
+    img.onload = async () => {
       const W = 480, H = 640, c = document.createElement('canvas');
       c.width = W; c.height = H;
       const ctx = c.getContext('2d');
@@ -2703,7 +2786,21 @@ function prepararFoto(file){
       const alvo = W / H, orig = img.width / img.height;
       let sw = img.width, sh = img.height, sx = 0, sy = 0;
       if(orig > alvo){ sw = img.height * alvo; sx = (img.width - sw) / 2; }
-      else { sh = img.width / alvo; sy = (img.height - sh) * 0.2; }   // rosto costuma ficar na parte de cima
+      else { sh = img.width / alvo; sy = (img.height - sh) * 0.2; }   // sem detector: rosto costuma ficar na parte de cima
+      // Se o navegador sabe achar rostos, recorta centrado no rosto (cabeça e ombros).
+      try{
+        if('FaceDetector' in window){
+          const rostos = await new FaceDetector({fastMode: true, maxDetectedFaces: 3}).detect(img);
+          if(rostos.length){
+            const f = rostos.sort((a, b) => b.boundingBox.width - a.boundingBox.width)[0].boundingBox;
+            let h2 = Math.min(img.height, f.height * 3.2), w2 = h2 * alvo;
+            if(w2 > img.width){ w2 = img.width; h2 = w2 / alvo; }
+            sw = w2; sh = h2;
+            sx = Math.min(Math.max(0, f.x + f.width / 2 - sw / 2), img.width - sw);
+            sy = Math.min(Math.max(0, f.y + f.height / 2 - sh * 0.38), img.height - sh);
+          }
+        }
+      }catch(_){ /* sem detector: fica o recorte padrão */ }
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, W, H);
       URL.revokeObjectURL(url);
       c.toBlob(b => b ? resolve(b) : reject(new Error('imagem_invalida')), 'image/jpeg', 0.85);
