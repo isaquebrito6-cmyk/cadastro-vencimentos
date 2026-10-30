@@ -493,7 +493,6 @@
       <label class="btn" for="scanGaleria" style="cursor:pointer;">🖼 Escolher imagem</label>
       <button type="button" class="btn" id="scanColar" title="Cole uma imagem copiada (Ctrl+V)">📋 Colar imagem</button>
       <input type="file" id="scanGaleria" accept="image/*" style="display:none;">
-      <button type="button" class="btn" id="scanColar" title="Cole uma imagem copiada (Ctrl+V)">📋 Colar imagem</button>
     </div>
     <div id="scanEtapaImg" style="display:none;">
       <canvas id="scanCanvas" style="width:100%;max-height:50vh;object-fit:contain;background:#111;border:1px solid var(--line);border-radius:4px;"></canvas>
@@ -2607,46 +2606,6 @@ function scanLigar(){
   });
 }
 
-// ================= Colar imagem (Ctrl+V ou botão) =================
-function imagemDoClipboardEvento(ev){
-  const itens = (ev.clipboardData && ev.clipboardData.items) || [];
-  for(const it of itens){ if(it.kind === 'file' && it.type.startsWith('image/')) return it.getAsFile(); }
-  return null;
-}
-async function imagemDoClipboardBotao(){
-  if(!navigator.clipboard || !navigator.clipboard.read) throw new Error('Este navegador não deixa colar por botão. Use Ctrl+V ou "Escolher imagem".');
-  const itens = await navigator.clipboard.read();
-  for(const it of itens){
-    const tipo = it.types.find(t => t.startsWith('image/'));
-    if(tipo) return new File([await it.getType(tipo)], 'colada.' + tipo.split('/')[1], {type: tipo});
-  }
-  throw new Error('Não há imagem copiada. Copie uma imagem primeiro.');
-}
-function aplicarImagemColada(file){
-  if(document.getElementById('scanModal').style.display === 'flex'){ scanCarregarArquivo(file); return true; }
-  if(openEditId){
-    const box = document.querySelector(`[data-foto-colab="${CSS.escape(openEditId)}"]`);
-    if(box){ enviarFoto(openEditId, file, box); return true; }
-  }
-  return false;
-}
-document.addEventListener('paste', ev => {
-  const f = imagemDoClipboardEvento(ev);
-  if(!f) return;
-  if(aplicarImagemColada(f)) ev.preventDefault();
-  else showToast('Abra a ficha de um colaborador (✎) ou o escaneamento para colar a imagem.');
-});
-document.addEventListener('click', async ev => {
-  const b = ev.target.closest && ev.target.closest('[data-foto-colar], #scanColar');
-  if(!b) return;
-  ev.preventDefault();
-  try{
-    const f = await imagemDoClipboardBotao();
-    if(b.id === 'scanColar') scanCarregarArquivo(f);
-    else { const box = b.closest('[data-foto-colab]'); enviarFoto(b.dataset.fotoColar, f, box); }
-  }catch(err){ showToast(err.message || 'Não foi possível colar.', 'error'); }
-});
-
 // ================= Foto + carteirinha de treinamento =================
 let EXTRAS = {};     // colaborador_id -> {cargo, maquina}
 let FOTOS = {};      // colaborador_id -> atualizado_em
@@ -2704,7 +2663,6 @@ function fotoBoxHTML(e){
       ${img}
       <div class="foto-acoes">
         <label class="btn ghost foto-btn">📷 ${tem ? 'Trocar foto' : 'Enviar foto'}<input type="file" accept="image/*" data-foto-input hidden></label>
-        <button type="button" class="btn ghost foto-btn" data-foto-colar="${escapeHTML(e.id)}" title="Cole uma imagem copiada (Ctrl+V)">📋 Colar foto</button>
         <a href="#" class="btn ghost foto-btn" data-foto-colar="${escapeHTML(e.id)}" title="Cole uma imagem copiada (também vale Ctrl+V com a ficha aberta)">📋 Colar foto</a>
         ${tem ? `<a href="#" class="clear-date" data-foto-del="${escapeHTML(e.id)}">remover foto</a>` : ''}
         <a href="#" class="btn ghost foto-btn" data-assin-abrir="assin:${escapeHTML(e.id)}" data-assin-titulo="Assinatura de ${escapeHTML(e.nome)}">✍ ${FOTOS['assin:' + e.id] ? 'Refazer assinatura' : 'Assinatura digital'}</a>
