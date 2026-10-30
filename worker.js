@@ -267,6 +267,15 @@ async function handleData(request, env, url) {
     const { results } = await db.prepare('SELECT x.colaborador_id, x.cargo, x.maquina FROM colaborador_extra x JOIN colaboradores c ON c.id = x.colaborador_id AND c.deletado_em IS NULL WHERE x.empresa_id = ?').bind(empresaId).all();
     extras = results;
   } catch (err) { /* cargo/máquina nunca impedem o app de abrir */ }
+  try {   // legado: cargo que foi digitado na coluna antiga "funcao" aparece até ser salvo no campo novo
+    const { results: antigos } = await db.prepare("SELECT id, funcao FROM colaboradores WHERE empresa_id = ? AND deletado_em IS NULL AND funcao IS NOT NULL AND funcao <> ''").bind(empresaId).all();
+    const tem = new Map(extras.map(x => [x.colaborador_id, x]));
+    for (const a of antigos) {
+      const x = tem.get(a.id);
+      if (!x) extras.push({ colaborador_id: a.id, cargo: String(a.funcao).slice(0, 120), maquina: '' });
+      else if (!x.cargo) x.cargo = String(a.funcao).slice(0, 120);
+    }
+  } catch (err) { /* coluna antiga não existe: nada a fazer */ }
 
   return json({
     certificados, fotos, extras,

@@ -1238,7 +1238,7 @@ function refreshDocFilterOptions(){
   const sel = document.getElementById('docFilter');
   if(!sel) return;
   const atual = sel.value;
-  sel.innerHTML = '<option value="">Documento: todos</option>' + DOC_ORDER.map(s => `<option value="${s}">${s}</option>`).join('');
+  sel.innerHTML = '<option value="">Documento: todos</option>' + DOC_ORDER.map(s => `<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`).join('');
   if(DOC_ORDER.includes(atual)) sel.value = atual;
 }
 
